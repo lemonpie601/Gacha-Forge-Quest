@@ -31,6 +31,11 @@ const show=async(line,n)=>{sr.querySelector('.vn-line').textContent=line;sr.quer
   assert.ok(confirms.some(m=>m.includes('2033.04.01')&&m.includes('봄')),confirms.join(' | '));
   let w=W();assert.strictEqual(w.gfDateManual.date,'2033-04-01');assert.strictEqual(w.gfDateManual.by,'ai');assert.strictEqual(w.gfDateAnchor.date,'2033-04-01');
   assert.match(panel.querySelector('.gfq-tk-date').textContent,/2033\.04\.01.*시각 미정.*세계관 추정/);
+  // Starting money: nothing written anywhere, no AI → a modest default for the currency, after a confirm.
+  await click('[data-action="cash-auto"]');await sleep(50);
+  assert.ok(confirms.some(m=>m.includes('300,000')),confirms.join(' | '));
+  w=W();assert.deepStrictEqual([w.gfCashBase.amount,w.gfCashBase.by,w.gfCashBase.basis],[300000,'guess','자동 추정']);
+  assert.match(panel.querySelector('.gfq-cash').textContent,/300,000.*자동 추정/);
   // Time passes by periods.
   await click('[data-action="time-next"]');w=W();assert.strictEqual(w.gfTimeManual.period,'아침');
   await click('[data-action="time-next"]');assert.match(panel.querySelector('.gfq-tk-clock').textContent,/오전/);

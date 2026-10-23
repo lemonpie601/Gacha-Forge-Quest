@@ -1,4 +1,4 @@
-/* 퀘스트 v0.13.0 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
+/* 퀘스트 v0.14.0 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
 (() => {
   'use strict';
   if (globalThis.__gfQuestExtension01) return;
@@ -2682,22 +2682,44 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     record(w,'추정 날짜를 원문 날짜에 맞춤: '+(delta>0?'+':'')+delta+'일 ('+from+' → '+written+')');
     return delta;
   }
-  // v0.13.0: ask the analysis model for a date (and time of day) that fits the world. The reply is validated like any other.
-  async function gfqAiWorldDate(w){
+  // v0.14.0: the world's own lorebooks (not this extension's status book), as plain text for the estimates below.
+  const gfqLoreCache=new Map();
+  async function gfqWorldLoreText(w,limit=6000){
+    const ids=[...(w.gfRunLore?.worldIds||[]),...(w.gfRunLore?.castIds||[])].filter(id=>id&&id!==w.gfInject?.lorebookId).slice(0,8);
+    if(!ids.length)return '';
+    const key=ids.join('|'),hit=gfqLoreCache.get(key);if(hit&&Date.now()-hit.at<600000)return hit.text;
+    let out='';
+    for(const id of ids){
+      try{
+        const r=await gfqApi('/api/lorebooks/'+encodeURIComponent(id)+'/entries','GET');
+        const list=Array.isArray(r)?r:Array.isArray(r?.entries)?r.entries:Array.isArray(r?.data)?r.data:[];
+        for(const e of list){if(!e||e.enabled===false)continue;const t=((e.name||e.comment||'')+': '+String(e.content||'')).replace(/\n{3,}/g,'\n\n').trim();if(t.length>4)out+=t+'\n';if(out.length>limit)break;}
+      }catch{}
+      if(out.length>limit)break;
+    }
+    out=out.slice(0,limit);gfqLoreCache.set(key,{at:Date.now(),text:out});return out;
+  }
+  // v0.13.0/v0.14.0: ask the analysis model for a date (and time of day) and/or a starting balance that fit the world.
+  // Every answer is validated; an empty or broken answer gives nulls and the callers fall back to the pure estimates.
+  async function gfqAiWorldSetup(w,want,signal){
     const host=typeof marinara==='object'&&marinara?marinara:globalThis.marinara||{};
+    const lore=await gfqWorldLoreText(w).catch(()=>'');
     const recs=gfqStoryRecords(w),premise=recs.filter(r=>/줄거리/.test(r.source)).map(r=>'['+r.source+'] '+r.text).join('\n').slice(0,3500);
     const recent=recs.filter(r=>!/줄거리/.test(r.source)).slice(-3).map(r=>'['+r.source+'] '+r.text).join('\n').slice(-2500);
-    const texts=recs.map(r=>r.text);
-    const prompt=['이 이야기 세계에 어울리는 \'오늘\'의 날짜와 때를 하나 정합니다. 반환 JSON: {"worldDate":"YYYY-MM-DD","era":"원문에 나오는 고유 연호 이름 또는 빈 문자열","worldTimeOfDay":"새벽|아침|오전|점심|오후|저녁|밤|심야 또는 빈 문자열","worldTime":"HH:MM 또는 빈 문자열","worldDateReason":"근거 한 문장"}',
-      '원문에 연도(예: 2033년)·계절·명절·학기 같은 단서가 있으면 반드시 따릅니다. 현대·근미래 배경은 그 시대에 맞는 연도, 고유 연호가 있는 판타지 세계는 그 연호의 연도(예: 0312-04-09)를 씁니다. 마지막 장면의 때(아침·밤 등)를 알 수 있으면 worldTimeOfDay에 씁니다.',
+    const texts=[...recs.map(r=>r.text),lore],unit=gfqMainUnit(w),hero=w.protagonist||'주인공';
+    const keys=[...(want.date?['"worldDate":"YYYY-MM-DD"','"era":"원문·로어북에 나오는 고유 연호 이름 또는 빈 문자열"','"worldTimeOfDay":"새벽|아침|오전|점심|오후|저녁|밤|심야 또는 빈 문자열"','"worldTime":"HH:MM 또는 빈 문자열"','"worldDateReason":"근거 한 문장"']:[]),
+      ...(want.cash?['"startCash":숫자','"cashUnit":"화폐 단위(원·골드·냥 등)"','"cashEvidence":"로어북·원문에 '+hero+'의 소지금·잔고가 적혀 있으면 그 인용, 없으면 빈 문자열"','"cashReason":"근거 한 문장"']:[])];
+    const prompt=['이 이야기 세계에 맞는 시작 설정을 정합니다. 반환 JSON: {'+keys.join(',')+'}',
+      ...(want.date?['날짜: 원문·로어북에 연도(예: 2033년)·계절·명절·학기 단서가 있으면 반드시 따릅니다. 현대·근미래 배경은 그 시대에 맞는 연도, 고유 연호가 있는 판타지 세계는 그 연호의 연도(예: 0312-04-09)를 씁니다. 마지막 장면의 때를 알 수 있으면 worldTimeOfDay에 씁니다.']:[]),
+      ...(want.cash?['시작 소지금: 이야기를 시작할 때 '+hero+'가 가진 돈입니다. 로어북·원문에 금액이 적혀 있으면 그 금액을 그대로 쓰고 cashEvidence에 인용합니다. 없으면 '+hero+'의 신분·직업·나이·처지와 이 세계의 물가에 어울리는 적당한 금액을 정합니다. 이 월드의 주 화폐는 \''+unit+'\'로 보이니 다른 화폐가 분명하지 않으면 그 단위를 씁니다.']:[]),
       'JSON 외 다른 출력은 금지합니다.',
       '월드: '+(w.gfDisplayName||data.world)+(w.protagonist?' · 주인공: '+w.protagonist:''),
-      '[줄거리]\n'+(premise||'(없음)'),'[최근 장면]\n'+(recent||'(없음)')].join('\n');
-    const raw=await gfqGenerate(host,String(data.aiConnectionId||'').trim(),'gfq-date-'+Date.now().toString(36),'Choose an in-world calendar date that fits the story world. Return only JSON.',prompt,600);
-    const m=String(raw||'').match(/\{[\s\S]*\}/);if(!m)throw Error('응답에서 JSON을 찾지 못했습니다');
-    const g=gfqWorldDateFrom(JSON.parse(m[0]),texts);if(!g)throw Error('날짜 형식이 올바르지 않습니다');
-    return g;
+      '[세계관 로어북]\n'+(lore||'(없음)'),'[줄거리]\n'+(premise||'(없음)'),'[최근 장면]\n'+(recent||'(없음)')].join('\n');
+    const raw=await gfqGenerate(host,String(data.aiConnectionId||'').trim(),'gfq-setup-'+Date.now().toString(36),'Choose starting values that fit the story world. Return only JSON.',prompt,700,signal);
+    const m=String(raw||'').match(/\{[\s\S]*\}/);let j=null;try{j=m?JSON.parse(m[0]):null;}catch{}
+    return {lore,date:want.date&&j?gfqWorldDateFrom(j,texts):null,cash:want.cash&&j?gfqStartCashFrom(j,texts,unit):null};
   }
+  async function gfqAiWorldDate(w){const r=await gfqAiWorldSetup(w,{date:true});if(!r.date)throw Error('날짜 형식이 올바르지 않습니다');return r.date;}
   async function gfqRunAnalysis(worldKey,batches,hashes,opts={}){
     const w=data.worlds[worldKey];
     if(!w)return {error:'월드를 찾지 못했습니다.'};
@@ -2746,8 +2768,15 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
       }
       if(data.worlds[worldKey]!==w)throw Error('분석 중 월드 데이터가 바뀌어 결과를 적용하지 않았습니다.');
       if(!processed)throw Error('모든 회차의 분석에 실패했습니다.\n'+failures.slice(0,6).join('\n'));
-      // v0.13.0: still no date after the whole run: pick one from the story's own year and season.
-      if(!gfqCurrentDate(w)){const g=gfqGuessWorldDate(w);if(g.date){const first=batches.find(b=>b.chapter&&b.chapter!=='?');gfqSetAnchor(w,g,first?.chapter||'','guess');anchored=true;stats.anchored=gfqDateText(w,g.date);}}
+      // v0.13.0: still no date after the whole run; v0.14.0: no starting balance yet (asked once per world).
+      // One call with the world lorebook decides both; without an answer the story's own year/season and a default are used.
+      const needDate=!gfqCurrentDate(w),needCash=!w.gfCashBase&&!w.gfCashTried;
+      if(needDate||needCash){
+        let setup={};try{setup=await gfqAiWorldSetup(w,{date:needDate,cash:needCash},controller.signal);}catch{}
+        if(data.worlds[worldKey]!==w)throw Error('분석 중 월드 데이터가 바뀌어 결과를 적용하지 않았습니다.');
+        if(needDate&&!gfqCurrentDate(w)){const g=setup.date||gfqGuessWorldDate(w);if(g?.date){const first=batches.find(b=>b.chapter&&b.chapter!=='?');gfqSetAnchor(w,g,first?.chapter||'',setup.date?'ai':'guess');anchored=true;stats.anchored=gfqDateText(w,g.date);}}
+        if(needCash&&!w.gfCashBase){w.gfCashTried=true;const c=setup.cash||gfqGuessStartCash(w,setup.lore||'');if(c){gfqSetCashEstimate(w,c,setup.cash?'AI':'자동');stats.cashSet=gfqAmount(c.amount,c.unit)+(c.basis==='원문'?' (원문 금액)':'');}}
+      }
       if(anchored){dateMap=gfqDateMap(w);headed=gfqHeadingDates(dateMap);w.gfDates={...(w.gfDates||{}),...headed};}
       for(const [ch,c] of Object.entries(gfqHeadingClocks(dateMap))){const e=(w.gfDates||={})[ch];if(!e)w.gfDates[ch]=c;else if(!e.time&&!e.period&&e.date===c.date)Object.assign(e,gfqClockOf(c));}
       const merged=gfqIntegrateQuests(eventsToAdd,gfqRuleCtx(w));
@@ -3350,6 +3379,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     if(a.linked||a.linkRejected)lines.push('이전 기록 연결: '+(a.linked||0)+'개'+(a.linkRejected?' (검증 실패로 거부 '+a.linkRejected+'개)':''));
     if(a.components)lines.push('총액의 구성 금액으로 판정: '+a.components+'개');
     if(a.dated)lines.push('세계관 날짜 갱신: 챕터 '+a.dated+'개');
+    if(a.cashSet)lines.push('시작 소지금 지정: '+a.cashSet+' (세계관에 맞춰 정함 · 프로필에서 바꿀 수 있습니다)');
     if(a.anchored)lines.push('세계관 날짜 지정: '+a.anchored+' (원문에 날짜가 없어 세계관에 맞춰 정함 · 프로필에서 바꿀 수 있습니다)');
     if(a.consolidation)lines.push(a.consolidation);
     if(a.deferred)lines.push('장면 도달 대기: '+a.deferred+'개 (해당 대사가 나오면 반영)');
@@ -3653,6 +3683,34 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   // Protagonist as an admission ticket: photo stub, details, perforated barcode stub.
   // v0.6.2: cash on hand = the starting amount the player entered + confirmed deposits − payments (원 only).
   // Promised or pending money is never counted.
+  // v0.14.0: a starting balance chosen from the world (lorebook, story) when the player has not typed one.
+  // Pure: validate the AI's answer. A sum the lorebook/story writes (in its evidence) is '원문', otherwise an estimate.
+  function gfqStartCashFrom(r,texts,unit){
+    if(!r||typeof r!=='object')return null;
+    const n=typeof r.startCash==='number'?r.startCash:Number(String(r.startCash??'').replace(/[,\s]/g,''));
+    if(String(r.startCash??'').trim()===''||!Number.isFinite(n)||n<0||n>1e13)return null;
+    const u=gfqUnit(String(r.cashUnit||'').trim())||unit;if(!gfqIsMoneyUnit(u))return null;
+    const raw=typeof r.cashEvidence==='string'?r.cashEvidence.trim():'',ev=raw.length>=4?gfqLocateEvidence(raw,texts):null;
+    const written=!!ev&&gfqMoneyIn(ev).some(m=>m.unit===u&&m.n===n);
+    return {amount:Math.round(n),unit:u,basis:written?'원문':'세계관 추정',reason:String(r.cashReason||'').replace(/\s+/g,' ').trim().slice(0,120),...(written?{evidence:ev}:{})};
+  }
+  // Pure fallback: a balance the text states next to '소지금·잔고·지갑…', else a modest default for the currency.
+  function gfqGuessStartCash(w,lore){
+    const unit=gfqMainUnit(w),text=String(lore||'')+'\n'+gfqStoryRecords(w).map(r=>r.text).join('\n');
+    for(const m of text.matchAll(/(소지금|잔고|잔액|통장|지갑|가진 돈|수중|전 재산|용돈|여비|노잣돈)/gu)){
+      const win=text.slice(m.index,m.index+40),hit=gfqMoneyIn(win).find(x=>x.unit===unit);
+      if(hit)return {amount:Math.round(hit.n),unit,basis:'원문',evidence:win.slice(0,hit.end).trim(),reason:'\''+m[1]+'\' 옆에 적힌 금액'};
+    }
+    const base={'원':300000,'골드':100,'실버':500,'금화':10,'은화':50,'동전':200,'냥':5,'전':100,'크레딧':1000}[unit]??100;
+    return {amount:base,unit,basis:'자동 추정',reason:'로어북·원문에 금액 단서가 없어 '+unit+' 기본값'};
+  }
+  function gfqSetCashEstimate(w,c,how){
+    const main=gfqMainUnit(w);
+    // a world whose money is not yet known (empty ledger) takes the currency the lorebook names
+    if(c.unit!==main&&!(w.gfLedger||[]).some(t=>gfqUnit(t.unit)===main))w.gfCurrency=c.unit;
+    w.gfCashBase={amount:c.amount,unit:c.unit,at:now(),by:how==='AI'?'ai':'guess',basis:c.basis,...(c.reason?{reason:c.reason}:{}),...(c.evidence?{evidence:c.evidence}:{})};
+    record(w,'시작 소지금 지정 ('+how+(c.basis==='원문'?' · 원문 금액':'')+'): '+gfqAmount(c.amount,c.unit)+(c.reason?' · '+c.reason:''));
+  }
   function gfqCash(w){
     const sm=gfqLedgerSummary(w),base=typeof w.gfCashBase?.amount==='number'&&(!w.gfCashBase.unit||w.gfCashBase.unit===sm.unit)?w.gfCashBase.amount:null;
     return {unit:sm.unit,known:base!==null,base,net:sm.received-sm.paid,balance:base===null?null:base+sm.received-sm.paid,owed:sm.receivable+sm.pending};
@@ -3673,7 +3731,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
         '<h3 class="gfq-tk-name">'+(name?esc(name):'<span class="gfq-sub">이름 미설정</span>')+'</h3>'+
         (name?'':'<p class="gfq-sub">게임 상태를 받으면 주인공 이름을 채웁니다. 설정 탭에서 직접 입력할 수도 있습니다.</p>')+
         '<dl class="gfq-tk-rows">'+
-          '<dt>소지금</dt><dd class="gfq-cash">'+(()=>{const c=gfqCash(w);return c.known?'<b class="gfq-num">'+esc(gfqAmount(c.balance,c.unit))+'</b><small>시작 '+esc(gfqAmount(c.base,c.unit))+' + 입금 확인 − 지출'+(c.owed?' · 받을 돈 '+esc(gfqAmount(c.owed,c.unit))+' 별도':'')+'</small><button class="gfq-link" data-action="cash-base">시작 금액 고치기</button>':'<span class="gfq-sub">확인된 순변동 '+esc((c.net>=0?'+':'')+gfqAmount(c.net,c.unit))+'</span><button class="gfq-link" data-action="cash-base">시작 소지금 입력</button>';})()+'</dd>'+
+          '<dt>소지금</dt><dd class="gfq-cash">'+(()=>{const c=gfqCash(w);const b=w.gfCashBase,est=!!b&&(b.by==='ai'||b.by==='guess');return c.known?'<b class="gfq-num">'+esc(gfqAmount(c.balance,c.unit))+'</b><small>시작 '+esc(gfqAmount(c.base,c.unit))+(est?' ('+esc(b.basis==='원문'?'원문 금액':b.basis||'세계관 추정')+')':'')+' + 입금 확인 − 지출'+(c.owed?' · 받을 돈 '+esc(gfqAmount(c.owed,c.unit))+' 별도':'')+'</small>'+(est&&b.reason?'<small class="gfq-sub gfq-cash-why">'+esc(b.reason)+'</small>':'')+'<button class="gfq-link" data-action="cash-base">시작 금액 고치기</button>'+(est?'<button class="gfq-link" data-action="cash-auto">다시 정하기</button>':''):'<span class="gfq-sub">확인된 순변동 '+esc((c.net>=0?'+':'')+gfqAmount(c.net,c.unit))+'</span><button class="gfq-link" data-action="cash-base">시작 소지금 입력</button><button class="gfq-link" data-action="cash-auto">세계관에 맞게 정하기</button>';})()+'</dd>'+
           '<dt>명성</dt><dd>'+(repN===null?'<span class="gfq-sub">'+(rep?esc(rep.value+(rep.unit||'')):'아직 없음')+'</span>':dots+'<b class="gfq-num">'+repN+'</b><small>점</small>')+'</dd>'+
           '<dt>자격</dt><dd>'+(creds.map(f=>'<span class="gfq-stamp">'+esc(f.name.replace(/^보유 자격 · /,''))+(f.value?'<small>'+esc(String(f.value).replace(/^취득 · /,''))+'</small>':'')+'</span>').join('')||'<span class="gfq-sub">아직 없음</span>')+'</dd>'+
           '<dt>의뢰</dt><dd><b class="gfq-num">'+open+'</b><small> 진행 중 · 전체 '+w.quests.length+'</small></dd>'+
@@ -4434,6 +4492,23 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   if(act==='sync-toggle'){const off=!gfqSyncMeta().off;gfqSyncSetMeta({off});if(!off)gfqSyncPull('manual');return render();}
   if(act==='sync-undo'){let b;try{b=JSON.parse(localStorage.getItem(GFQ_SYNC_BACKUP)||'null');}catch{}if(!b?.json)return alert('되돌릴 기록이 없습니다.');if(!(await gfqConfirm(new Date(b.at).toLocaleString('ko-KR')+'에 합치기 직전 이 기기 기록으로 되돌리시겠습니까? 되돌린 기록이 서버에도 올라갑니다.')))return;let d;try{d=JSON.parse(b.json);}catch{return alert('보관된 기록을 읽지 못했습니다.');}const prev=data;data=d;if(!save()){data=prev;return;}localStorage.removeItem(GFQ_SYNC_BACKUP);gfqSyncPush(true);return render();}
   if(act==='storage-clean'){const pl=gfqStoragePlan(w);if(!pl.samples&&!pl.history)return alert('정리할 항목이 없습니다.');if(!(await gfqConfirm('스토리 장면 '+pl.samples+'개와 오래된 변경 기록 '+pl.history+'개를 지우시겠습니까?\n퀘스트·거래·인물·장소는 지우지 않습니다. 먼저 백업 내보내기를 권해 드립니다.')))return;return update(w=>{if(pl.samples){const keep=new Set(pl.keep);w.gfStorySamples=(w.gfStorySamples||[]).filter(x=>keep.has(Number(x.chapter)));}record(w,'저장 공간 정리: 장면 '+pl.samples+'개, 기록 '+pl.history+'개');w.history=w.history.slice(0,200);});}
+  if(act==='cash-auto'){
+    const b=w.gfCashBase;
+    if(b&&!b.by&&!(await gfqConfirm('직접 입력한 시작 소지금('+gfqAmount(b.amount,b.unit)+')이 있습니다. 그래도 세계관에 맞게 다시 정할까요?')))return;
+    (async()=>{
+      let c=null,how='',lore='';
+      if(String(data.aiConnectionId||'').trim()){
+        gfqToast('소지금 정하는 중','세계관 로어북과 스토리를 보고 시작 소지금을 고르고 있습니다','money');
+        try{const r=await gfqAiWorldSetup(w,{cash:true});c=r.cash;lore=r.lore;how='AI';if(!c)how='자동 (AI 응답 형식 오류)';}catch(e){how='자동 (AI 실패: '+String(e?.message||e).slice(0,60)+')';}
+      }
+      if(!c){if(!lore)lore=await gfqWorldLoreText(w).catch(()=>'');c=gfqGuessStartCash(w,lore);how=how||'자동';}
+      const show=gfqAmount(c.amount,c.unit)+(c.basis==='원문'?' (로어북·원문에 적힌 금액)':'');
+      if(!(await gfqConfirm('세계관에 맞춰 고른 시작 소지금 ('+how+')\n\n'+show+'\n'+(c.reason?'근거: '+c.reason+'\n':'')+(c.evidence?'인용: '+c.evidence+'\n':'')+'\n이 금액으로 정할까요? 언제든 [시작 금액 고치기]로 바꿀 수 있습니다.')))return;
+      update(w=>{gfqSetCashEstimate(w,c,how.startsWith('AI')?'AI':'자동');w.gfCashTried=true;});
+      gfqToast('시작 소지금',show,'money');
+    })();
+    return;
+  }
   if(act==='cash-base'){const cur=w.gfCashBase?.amount;const v=(await ask('이야기를 시작할 때 주인공이 가진 돈('+gfqMainUnit(w)+')을 숫자로 입력해 주세요. 거래 내역의 입금 확인과 지출을 더하고 빼서 현재 소지금을 계산합니다.',cur!=null?String(cur):''));if(v===null)return;const n=Number(String(v).replace(/[,\s원]/g,''));if(!Number.isFinite(n)||n<0)return alert('0 이상의 숫자로 입력해 주세요.');return update(w=>{w.gfCashBase={amount:Math.round(n),unit:gfqMainUnit(w),at:now()};record(w,'시작 소지금 설정: '+gfqAmount(Math.round(n),gfqMainUnit(w)));});}
   if(act==='place-page'){placePage=id;selectedPlace='';return render();}
   if(act==='cast-filter'){castFilter=id;selectedCast='';return render();}
