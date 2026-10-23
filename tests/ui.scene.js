@@ -63,8 +63,8 @@ const toasts=()=>[...doc.querySelectorAll('#gfq-01-toasts .gfq-toast,#gfq-01-qto
   // A date line on screen moves the in-world date and shows a popup (after the line settles).
   await show('2033-04-10',5);await sleep(1500);
   w=state();assert.strictEqual(w.gfReadingDate?.date,'2033-04-10');
-  assert.ok(toasts().some(t=>t.startsWith('날짜 변경2033-04-10 (일)')),toasts().join(' | '));
+  assert.ok(toasts().some(t=>t.startsWith('날짜 변경2033.04.10 (일)')),toasts().join(' | '));
   await show('2033-04-11',6);await sleep(1500);
-  assert.ok(toasts().some(t=>t.includes('2033-04-11 (월) · 하루가 지났습니다')),toasts().join(' | '));
+  assert.ok(toasts().some(t=>t.includes('2033.04.11 (월) · 하루가 지났습니다')),toasts().join(' | '));
   console.log('UI scene OK');process.exit(0);
 })().catch(e=>{console.error(e);process.exit(1);});

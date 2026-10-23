@@ -2,8 +2,8 @@ const fs=require('fs'),assert=require('assert');
 const src=fs.readFileSync(process.argv[2]||require("path").join(__dirname,"..","extension.js"),'utf8');
 const grab=name=>{const i=src.indexOf('  function '+name+'(');if(i<0)throw Error('missing '+name);let d=0,j=src.indexOf('{',i);for(;j<src.length;j++){if(src[j]==='{')d++;else if(src[j]==='}'){d--;if(!d)break;}}return src.slice(i,j+1);};
 const grabConst=c=>{const i=src.indexOf('  const '+c+'=');if(i<0)throw Error('missing const '+c);const j=src.indexOf('=',i)+1;if(src[j]==='{'){let d=0,k=j;for(;k<src.length;k++){if(src[k]==='{')d++;else if(src[k]==='}'){d--;if(!d)break;}}return src.slice(i,k+1)+';\n';}return src.slice(i,src.indexOf('\n',i)+1);};
-const consts=['GFQ_CURRENCIES','GFQ_UNIT_OF','gfqUnit','gfqIsMoneyUnit','GFQ_THEME_UNIT','GFQ_UNIT_ALT','GFQ_NATIVE_NUM','gfqCurCache','gfqMoneyScale','GFQ_CONDITIONAL','gfqIsCond','GFQ_INJECT_SECTIONS','gfqWeekday','GFQ_DAY_WORDS','gfqChapterOfSource','GFQ_REVIEW_NOTES','GFQ_PAY_CUE','GFQ_CASH_WORDS','GFQ_DISCOUNT_WORDS','GFQ_SKIP','GFQ_TIMING','GFQ_LEGACY_PACK','GFQ_GENERIC','gfqEsc','GFQ_LABELS','gfqLabel','gfqAmount','gfqTimingText','GFQ_MONEY_STATES','gfqMoney','GFQ_RANK','gfqChainOf','GFQ_LINK_REASON','GFQ_CERT_RANK','GFQ_EQUIP_TYPES','gfqEquipType','gfqIsEquipment','GFQ_CH_WORDS','GFQ_ITEM_PREFIX'].map(grabConst).join('');
-const names=['gfqApplyEquipmentCandidate','gfqGearStage','gfqGearFromStory','gfqMergeMoneyRewards','gfqCleanLore','gfqMergeLore','gfqInjectText','gfqQuestRewardItems','gfqKNum','gfqMoneyIn','gfqDetectUnit','gfqMainUnit','gfqInjectLines','gfqInjectFit','gfqInjectSections','gfqCash','gfqVNDate','gfqDayDiff','gfqDateHeading','gfqDateMap','gfqDateAt','gfqHeadingDates','gfqStampDates','gfqYmd','gfqDatesIn','gfqAddDays','gfqTimelineFrom','gfqCurrentDate','gfqResolveTiming','gfqSumTotals','gfqAutoGate','gfqEventsFor','gfqVNState','gfqEvidenceList','gfqLineHits','gfqSceneHits','gfqAutoBatches','gfqAutoEligible','gfqMissingMoney','gfqAmountsIn','gfqDedupeRewards','gfqRewardText','gfqScreenEvent','gfqLocateEvidence','gfqBuildProposal','gfqEventEligible','gfqNormMap','gfqApplySale','gfqChapterHashes','gfqParseChapterRange','gfqApplyBenefit','gfqApplyPurchase','gfqLedgerSummary','gfqRewardFromProposal','gfqClearedHint','gfqChapterBatches','gfqContextItems','gfqResolveLink','gfqApplyLink','gfqMarkComponents','gfqLedgerMatch','gfqLedgerQuestion','gfqLedgerRecord','gfqRelinkQuestRewards','gfqApplyItem','gfqConsolidationInput','gfqApplyConsolidation','gfqQuestPresentation','gfqStepLine','gfqUpdateQuest','gfqAwardQuestReputation','gfqRuleCtx','gfqTiming','gfqSafeProposal','gfqStoryRecords','gfqParseEvents','gfqDuplicate','gfqCollectEvents','gfqKnownKeys','gfqIntegrateQuests','gfqQuestGroup','gfqAnalysisSummary','gfqCaptionChapter','gfqItemKey','gfqSimilarItem'];
+const consts=['GFQ_CURRENCIES','GFQ_UNIT_OF','gfqUnit','gfqIsMoneyUnit','GFQ_THEME_UNIT','GFQ_UNIT_ALT','GFQ_NATIVE_NUM','gfqCurCache','gfqMoneyScale','GFQ_CONDITIONAL','gfqIsCond','GFQ_INJECT_SECTIONS','gfqWeekday','GFQ_DAY_WORDS','GFQ_PERIODS','gfqClockOf','gfqHeadingClocks','gfqMapEra','gfqChapterOfSource','GFQ_REVIEW_NOTES','GFQ_PAY_CUE','GFQ_CASH_WORDS','GFQ_DISCOUNT_WORDS','GFQ_SKIP','GFQ_TIMING','GFQ_LEGACY_PACK','GFQ_GENERIC','gfqEsc','GFQ_LABELS','gfqLabel','gfqAmount','gfqTimingText','GFQ_MONEY_STATES','gfqMoney','GFQ_RANK','gfqChainOf','GFQ_LINK_REASON','GFQ_CERT_RANK','GFQ_EQUIP_TYPES','gfqEquipType','gfqIsEquipment','GFQ_CH_WORDS','GFQ_ITEM_PREFIX'].map(grabConst).join('');
+const names=['gfqApplyEquipmentCandidate','gfqGearStage','gfqGearFromStory','gfqMergeMoneyRewards','gfqCleanLore','gfqMergeLore','gfqInjectText','gfqQuestRewardItems','gfqKNum','gfqMoneyIn','gfqDetectUnit','gfqMainUnit','gfqInjectLines','gfqInjectFit','gfqInjectSections','gfqCash','gfqVNStamps','gfqVNDate','gfqDayDiff','gfqDateHeading','gfqDateMap','gfqDateAt','gfqHeadingDates','gfqStampDates','gfqYmd','gfqUTC','gfqIso','gfqEraIn','gfqTimeIn','gfqPeriodIn','gfqPeriodOfHour','gfqClockRank','gfqClockWraps','gfqClockText','gfqClockFrom','gfqWorldDateFrom','gfqYearsIn','gfqGuessWorldDate','gfqCurrentClock','gfqDateText','gfqDayText','gfqParseStamp','gfqResolveStamp','gfqEventClock','gfqDatesIn','gfqAddDays','gfqTimelineFrom','gfqCurrentDate','gfqResolveTiming','gfqSumTotals','gfqAutoGate','gfqEventsFor','gfqVNState','gfqEvidenceList','gfqLineHits','gfqSceneHits','gfqAutoBatches','gfqAutoEligible','gfqMissingMoney','gfqAmountsIn','gfqDedupeRewards','gfqRewardText','gfqScreenEvent','gfqLocateEvidence','gfqBuildProposal','gfqEventEligible','gfqNormMap','gfqApplySale','gfqChapterHashes','gfqParseChapterRange','gfqApplyBenefit','gfqApplyPurchase','gfqLedgerSummary','gfqRewardFromProposal','gfqClearedHint','gfqChapterBatches','gfqContextItems','gfqResolveLink','gfqApplyLink','gfqMarkComponents','gfqLedgerMatch','gfqLedgerQuestion','gfqLedgerRecord','gfqRelinkQuestRewards','gfqApplyItem','gfqConsolidationInput','gfqApplyConsolidation','gfqQuestPresentation','gfqStepLine','gfqUpdateQuest','gfqAwardQuestReputation','gfqRuleCtx','gfqTiming','gfqSafeProposal','gfqStoryRecords','gfqParseEvents','gfqDuplicate','gfqCollectEvents','gfqKnownKeys','gfqIntegrateQuests','gfqQuestGroup','gfqAnalysisSummary','gfqCaptionChapter','gfqItemKey','gfqSimilarItem'];
 const code="let n=0;const uid=()=>'id'+(n++);const record=(w,text)=>{(w.history||=[]).unshift({text});};const now=()=>'T';const prompt=()=>{throw Error(\"prompt called\")};const alert=()=>{};"+consts+names.map(grab).join('\n')+'\nreturn {'+names.join(',')+'};';
 const F=new Function(code)();
 const L={legacy:true,hero:'채서래'};
@@ -613,5 +613,101 @@ t('장비: 부위만 있는 물품도 장비로 보고, 원문 근거가 있는 
   const it={id:'i1',name:'건틀릿'};F.gfqApplyEquipmentCandidate({},{equipType:'무기',equipSlot:'손',equipOptions:'공격력 +5',equipEvidence:'건틀릿은 공격력 +5를 준다'},it);
   assert.strictEqual(it.equipType,'무기');assert.strictEqual(it.equipOptions,'공격력 +5');assert.strictEqual(it.gearStage,'옵션 확정');
   F.gfqApplyEquipmentCandidate({},{equipOptions:'공격력 +5',equipEvidence:'다시 공격력 +5'},it);assert.strictEqual(it.equipOptions,'공격력 +5','no duplicate option');
+});
+// --- v0.13.0: 세계관 시계 ---
+t('시각 읽기: 오전·오후·밤, 분·반, 24시간제, 시간(기간)은 시각 아님',()=>{
+  assert.deepStrictEqual(F.gfqTimeIn('오후 3시 20분'),{time:'15:20',period:'오후'});
+  assert.deepStrictEqual(F.gfqTimeIn('밤 10시 반'),{time:'22:30',period:'밤'});
+  assert.deepStrictEqual(F.gfqTimeIn('새벽 2시'),{time:'02:00',period:'새벽'});
+  assert.deepStrictEqual(F.gfqTimeIn('밤 12시'),{time:'00:00',period:'밤'});
+  assert.deepStrictEqual(F.gfqTimeIn('19:05에 도착'),{time:'19:05',period:'저녁'});
+  assert.deepStrictEqual(F.gfqTimeIn('7시',"저녁"),{time:'19:00',period:'저녁'},'a bare hour follows the period in force');
+  assert.strictEqual(F.gfqTimeIn('3시간 동안 걸었다'),null);
+  assert.strictEqual(F.gfqTimeIn('12시 방향'),null);
+  assert.strictEqual(F.gfqPeriodIn('해가 지고 거리에 불이 켜졌다'),'저녁');
+  assert.strictEqual(F.gfqClockText({time:'15:20',period:'오후'}),'오후 3:20');
+  assert.strictEqual(F.gfqClockText({time:'07:00',period:'아침'}),'아침 7시');
+});
+t('날짜 표시 줄: 연호·월일·N일차·시각 줄, 문장은 아님',()=>{
+  assert.deepStrictEqual(F.gfqParseStamp('[2033년 4월 10일 (목)] 오후 3시'),{date:'2033-04-10',time:'15:00',period:'오후'});
+  assert.deepStrictEqual(F.gfqParseStamp('제국력 312년 4월 9일, 저녁'),{date:'0312-04-09',era:'제국력',period:'저녁'});
+  assert.deepStrictEqual(F.gfqParseStamp('[4월 11일 (금) 아침]'),{md:[4,11],period:'아침'});
+  assert.strictEqual(F.gfqParseStamp('4월 9일, 그녀는 처음으로 학교에 갔다'),null,'a sentence starting with a date');
+  assert.deepStrictEqual(F.gfqParseStamp('DAY 3'),{day:3});
+  assert.deepStrictEqual(F.gfqParseStamp('3일차 밤'),{day:3,period:'밤'});
+  assert.deepStrictEqual(F.gfqParseStamp('오후 6시 30분'),{time:'18:30',period:'오후'});
+  assert.deepStrictEqual(F.gfqParseStamp('18시 30분'),{time:'18:30',period:'저녁'});
+  assert.deepStrictEqual(F.gfqParseStamp('[밤]'),{period:'밤'});
+  assert.strictEqual(F.gfqParseStamp('밤'),null,'a bare word without brackets is prose');
+  assert.strictEqual(F.gfqParseStamp('12:30'),null,'a bare HH:MM could be a game counter');
+  assert.strictEqual(F.gfqParseStamp('05 / 58'),null);
+  assert.deepStrictEqual(F.gfqDatesIn('제국력 312년 4월 9일'),['0312-04-09']);
+  assert.deepStrictEqual(F.gfqDatesIn('3.5.1 버전'),[]);
+  assert.strictEqual(F.gfqDateText({gfEra:'제국력'},'0312-04-09'),'제국력 312년 4월 9일');
+  assert.strictEqual(F.gfqDayText({},'2033-04-10'),'2033.04.10 (일)');
+  assert.strictEqual(F.gfqAddDays('0312-12-31',1),'0313-01-01');
+});
+t('표시 줄 해석: 월일은 현재 연도, 해 넘김, N일차는 이전 N일차 기준',()=>{
+  assert.strictEqual(F.gfqResolveStamp({md:[4,11]},'2033-04-09',null,null),'2033-04-11');
+  assert.strictEqual(F.gfqResolveStamp({md:[1,2]},'2033-12-30',null,null),'2034-01-02','year rolled over');
+  assert.strictEqual(F.gfqResolveStamp({md:[4,11]},null,null,null),null);
+  assert.strictEqual(F.gfqResolveStamp({day:5},'2033-04-09',{n:3,date:'2033-04-09'},null),'2033-04-11');
+  assert.strictEqual(F.gfqResolveStamp({day:4},null,null,'2033-03-01'),'2033-03-04','day 1 is the world-fitting date');
+});
+t('날짜 지도: 시각이 되돌아가면 다음 날(추정), 시각 줄만 있는 챕터는 따로',()=>{
+  const w={gfStorySamples:[
+    {id:'a',chapter:'1',index:'1',text:'[2033년 4월 9일 (토)] 밤 11시\n채서래는 잠들었다.'},
+    {id:'b',chapter:'2',index:'1',text:'[아침]\n채서래는 일어나 공방으로 갔다.'},
+    {id:'c',chapter:'2',index:'2',text:'오후 3시\n공방장이 건틀릿을 건넸다.'}]};
+  const map=F.gfqDateMap(w);
+  assert.strictEqual(F.gfqDateAt(map,'채서래는 잠들었다'),'2033-04-09');
+  assert.strictEqual(F.gfqDateAt(map,'채서래는 일어나 공방으로 갔다'),'2033-04-10');
+  assert.deepStrictEqual(F.gfqHeadingDates(map),{'1':{date:'2033-04-09',basis:'원문',evidence:'날짜 표시 2033-04-09 밤 11시',source:'챕터 1',time:'23:00',period:'밤'}});
+  assert.deepStrictEqual(F.gfqHeadingDates(map,'clock'),{'2':{date:'2033-04-10',basis:'추정',evidence:'시각 표시 2033-04-10 오후 3시',source:'챕터 2',time:'15:00',period:'오후'}});
+});
+t('AI 시각: 근거에 적힌 시각·때만 인정, 밤→아침은 다음 날',()=>{
+  const txt='해가 지고 거리에 불이 켜졌다. 시계는 오후 7시 10분을 가리켰다.';
+  assert.deepStrictEqual(F.gfqClockFrom({currentTime:'19:10',timeEvidence:'오후 7시 10분'},[txt]),{time:'19:10',period:'저녁',timeEvidence:'오후 7시 10분'});
+  assert.strictEqual(F.gfqClockFrom({currentTime:'21:10',timeEvidence:'오후 7시 10분'},[txt]),null,'a time not written in its evidence');
+  assert.deepStrictEqual(F.gfqClockFrom({timeOfDay:'저녁',timeOfDayEvidence:'해가 지고'},[txt]),{period:'저녁',timeEvidence:'해가 지고'});
+  assert.strictEqual(F.gfqClockFrom({timeOfDay:'아침',timeOfDayEvidence:'해가 지고'},[txt]),null,'period must match its evidence');
+  const morning='아침 햇살에 눈을 떴다.';
+  assert.deepStrictEqual(F.gfqTimelineFrom({timeOfDay:'아침',timeOfDayEvidence:'아침 햇살'},[morning],'2033-04-09',{time:'23:00',period:'밤'}),{date:'2033-04-10',basis:'추정',evidence:'아침 햇살',period:'아침',timeEvidence:'아침 햇살'});
+  assert.deepStrictEqual(F.gfqTimelineFrom({timeOfDay:'저녁',timeOfDayEvidence:'해가 지고'},[txt],'2033-04-09',{period:'오후'}).date,'2033-04-09','later the same day');
+});
+t('세계관 날짜 정하기: AI 제안은 원문 연도를 따르고, 없으면 원문 연도·계절로 추정',()=>{
+  const texts=['2033년, 서울에 게이트가 열린 지 십 년.'];
+  assert.deepStrictEqual(F.gfqWorldDateFrom({worldDate:'2026-04-01',worldDateReason:'근미래 서울'},texts),{date:'2033-04-01',reason:'근미래 서울'},'the year written in the story wins');
+  assert.strictEqual(F.gfqWorldDateFrom({worldDate:'4월 1일'},texts),null);
+  assert.strictEqual(F.gfqWorldDateFrom({worldDate:'2033-04-01',era:'신성력'},texts).era,undefined,'an era the story never names is dropped');
+  const g=F.gfqGuessWorldDate({gfStorySamples:[{chapter:'1',index:'1',text:'제국력 312년, 벚꽃이 흩날리는 봄이었다.'}]},2026);
+  assert.deepStrictEqual(g,{date:'0312-04-01',reason:'원문의 제국력 312년, 봄 묘사',era:'제국력'});
+  assert.strictEqual(F.gfqGuessWorldDate({gfStorySamples:[{chapter:'1',index:'1',text:'눈이 내리는 거리.'}]},2026).date,'2026-12-15');
+  assert.strictEqual(F.gfqYearsIn('3년 전, 그리고 2033년 4월')[0].month,4);
+});
+t('현재 날짜·시각: 세계관 추정은 원문보다 뒤, 시각은 그 날짜에만',()=>{
+  const w={gfDateAnchor:{date:'2033-04-01',chapter:'1',reason:'근미래',period:'아침'}};
+  assert.deepStrictEqual([F.gfqCurrentDate(w).date,F.gfqCurrentDate(w).basis],['2033-04-01','세계관 추정']);
+  assert.deepStrictEqual(F.gfqCurrentClock(w),{period:'아침',basis:'세계관 추정'});
+  w.gfReadingTime={time:'15:00',period:'오후',date:'2033-04-01',chapter:'1',ms:5};
+  assert.strictEqual(F.gfqCurrentClock(w).time,'15:00');
+  w.gfDates={'2':{date:'2033-04-03',basis:'원문'}};
+  assert.deepStrictEqual([F.gfqCurrentDate(w).date,F.gfqCurrentDate(w).basis],['2033-04-03','원문']);
+  assert.strictEqual(F.gfqCurrentClock(w),null,'yesterday\'s reading is not today\'s time');
+  w.gfDateManual={date:'2033-04-04',chapter:2,ms:9,by:'ai',reason:'봄'};
+  assert.deepStrictEqual([F.gfqCurrentDate(w).date,F.gfqCurrentDate(w).basis,F.gfqCurrentDate(w).reason],['2033-04-04','세계관 추정','봄']);
+  assert.strictEqual(F.gfqResolveTiming(w,{text:'내일',anchor:'챕터 2 · 장면 1'}),'2033-04-04','chapter 2 has its own date');
+  assert.strictEqual(F.gfqResolveTiming({gfReadingDate:{date:'2033-04-05',chapter:'3',ms:1}},{text:'내일',anchor:'챕터 3 · 장면 1'}),'2033-04-06','the current chapter falls back to today');
+  assert.deepStrictEqual(F.gfqEventClock({},{text:'금일 오후 6시까지'}),{time:'18:00',period:'오후'});
+});
+t('로어북 반영: 시각 줄과 선택한 날짜·시각 표기 요청',()=>{
+  const w={gfDates:{'3':{date:'2033-04-09',basis:'원문',period:'저녁'}},items:[],fields:[],quests:[],gfLedger:[]};
+  let L=F.gfqInjectLines(w);
+  assert.deepStrictEqual(L.slice(0,2),[['날짜','2033-04-09 (토)'],['시각','저녁']]);
+  assert.ok(!L.some(([k])=>k==='날짜 표기'));
+  w.gfAskStamp=true;w.gfEra='제국력';w.gfDates['3'].date='0312-04-09';L=F.gfqInjectLines(w);
+  assert.strictEqual(L[0][1],'제국력 312년 4월 9일');
+  assert.match(L.find(([k])=>k==='날짜 표기')[1],/\[제국력 N년 M월 D일 시각\]/);
+  assert.deepStrictEqual(F.gfqInjectSections(w,600)[0].text.split('\n').slice(1,3),['날짜: 제국력 312년 4월 9일','시각: 저녁']);
 });
 console.log('\n'+pass+'개 통과');

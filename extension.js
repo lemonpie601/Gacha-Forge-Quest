@@ -1,4 +1,4 @@
-/* 퀘스트 v0.12.0 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
+/* 퀘스트 v0.13.0 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
 (() => {
   'use strict';
   if (globalThis.__gfQuestExtension01) return;
@@ -307,6 +307,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
 #gfq-01-panel .gfq-k{font:700 12px var(--cond);color:var(--sub);letter-spacing:.05em}
 #gfq-01-panel .gfq-tk-date b{font-size:30px;line-height:1.1;letter-spacing:.02em}
 #gfq-01-panel .gfq-tk-date .gfq-row{margin-top:8px;gap:6px}#gfq-01-panel .gfq-tk-date button{font-size:12px;padding:4px 10px}
+#gfq-01-panel .gfq-tk-clock{font-size:16px;font-weight:600;letter-spacing:.02em;opacity:.88}
 #gfq-01-panel .gfq-tk-stub{display:flex;flex-direction:column;align-items:center;gap:10px;padding:22px 14px;background:var(--ink);color:var(--card)}
 #gfq-01-panel .gfq-tk-stub::before,#gfq-01-panel .gfq-tk-stub::after{border-color:var(--ink)}
 #gfq-01-panel .gfq-tk-stub .gfq-barcode{flex:1;width:100%;flex-direction:column;height:auto;min-height:120px}
@@ -1184,7 +1185,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     return [
       '[WORLD QUEST CONTEXT — user-maintained reference]',
       'World: '+data.world,
-      ...(gfqCurrentDate(w)?['In-world date: '+gfqCurrentDate(w).date+' ('+gfqCurrentDate(w).basis+')']:[]),
+      ...(gfqCurrentDate(w)?['In-world date: '+gfqCurrentDate(w).date+(gfqCurrentClock(w)?' '+gfqClockText(gfqCurrentClock(w)):'')+' ('+gfqCurrentDate(w).basis+')']:[]),
       'Active quests:',
       ...(active.length?active.map(q=>'- '+q.title+' ('+q.type+'): '+q.detail+' ['+q.progress+'/'+q.target+']; reward note: '+q.reward):['- none']),
       'Character/world assets:',
@@ -1532,65 +1533,242 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     return true;
   }
   // v0.4.4: world calendar. Dates come only from the story text; a day change without a written date is an estimate.
+  // v0.13.0: fictional calendars ('제국력 312년 4월 9일'), month-day and 'N일차' headings, the time of day,
+  // and a world-fitting date when the story never writes one (estimate; anything written in the story wins).
+  function gfqUTC(y,m,d){const t=new Date(Date.UTC(2000,0,1));t.setUTCFullYear(y,m-1,d);return t;}
+  function gfqIso(t){return String(t.getUTCFullYear()).padStart(4,'0')+'-'+String(t.getUTCMonth()+1).padStart(2,'0')+'-'+String(t.getUTCDate()).padStart(2,'0');}
   function gfqYmd(y,m,d){
-    if(!(y>=1000&&y<=9999&&m>=1&&m<=12&&d>=1&&d<=31))return null;
-    const t=new Date(Date.UTC(y,m-1,d));if(t.getUTCMonth()!==m-1)return null;
-    return t.toISOString().slice(0,10);
+    if(!(y>=1&&y<=9999&&m>=1&&m<=12&&d>=1&&d<=31))return null;
+    const t=gfqUTC(y,m,d);if(t.getUTCMonth()!==m-1)return null;
+    return gfqIso(t);
   }
   function gfqDatesIn(text){
     const out=[];
-    for(const m of String(text||'').matchAll(/(\d{4})\s*(?:[-./]|년\s*)\s*(\d{1,2})\s*(?:[-./]|월\s*)\s*(\d{1,2})\s*일?/gu)){const v=gfqYmd(+m[1],+m[2],+m[3]);if(v&&!out.includes(v))out.push(v);}
+    for(const m of String(text||'').matchAll(/(?:([가-힣]{1,5}(?:력|기))\s*)?(\d{1,4})\s*(년\s*|[-./])\s*(\d{1,2})\s*(?:[-./]|월\s*)\s*(\d{1,2})\s*일?/gu)){
+      // a short year needs an era name or '년' ('제국력 312.4.9', '312년 4월 9일'), so '3.5.1' is not a date
+      if(m[2].length<4&&!m[1]&&!/년/.test(m[3]))continue;
+      const v=gfqYmd(+m[2],+m[4],+m[5]);if(v&&!out.includes(v))out.push(v);
+    }
     return out;
   }
-  function gfqAddDays(ymd,n){const [y,m,d]=ymd.split('-').map(Number);const t=new Date(Date.UTC(y,m-1,d+n));return t.toISOString().slice(0,10);}
+  function gfqEraIn(text){const m=String(text||'').match(/([가-힣]{1,5}(?:력|기))\s*\d{1,4}\s*(?:년|[-./]\s*\d)/u);return m?m[1]:'';}
+  function gfqAddDays(ymd,n){const [y,m,d]=ymd.split('-').map(Number);return gfqIso(gfqUTC(y,m,d+n));}
   const GFQ_DAY_WORDS=/(다음\s?날|이튿날|이틀|사흘|나흘|닷새|하루가|밤이 지나|\d+\s*일\s*(?:뒤|후|만에|이 지나)|며칠|일주일)/u;
-  // Pure: validate the AI's timeline for one batch. Returns {date,basis,evidence} or null.
-  function gfqTimelineFrom(tl,texts,prevDate){
+  // --- v0.13.0: time of day. 'HH:MM' (24h) when a clock time is written, otherwise a period word. ---
+  const GFQ_PERIODS=['새벽','아침','오전','점심','오후','저녁','밤','심야'];
+  function gfqPeriodOfHour(h){return h<4?'심야':h<6?'새벽':h<9?'아침':h<12?'오전':h<14?'점심':h<18?'오후':h<21?'저녁':h<24?'밤':'심야';}
+  // The first clock time in a text → {time:'HH:MM',period}. hint: the period in force, for a bare '7시'.
+  function gfqTimeIn(text,hint){
+    const s=String(text||'');
+    const m=s.match(/(오전|오후|새벽|아침|낮|점심|저녁|밤|심야|AM|PM|am|pm)?\s*(\d{1,2})\s*(?::\s*(\d{2})(?!\d)|시(?![간대작장민청각점])(?!\s*방향)\s*(?:(\d{1,2})\s*분|(반))?)/u);
+    if(m){
+      let h=+m[2];const mi=m[3]?+m[3]:m[4]?+m[4]:m[5]?30:0,p=m[1]||'';
+      if(h<=24&&mi<=59){
+        if(/^(오후|저녁|밤|PM|pm)$/.test(p)&&h<12)h+=12;
+        else if(/^(낮|점심)$/.test(p)&&h<7)h+=12;
+        else if(/^(오전|새벽|아침|심야|AM|am)$/.test(p)&&h===12)h=0;
+        else if(p==='밤'&&h===12)h=0;
+        else if(!p&&h<12&&h>=1&&['오후','저녁','밤'].includes(hint))h+=12;
+        h%=24;
+        // keep the story's own word ('오후 6시' stays 오후); the hour decides when none is given
+        return {time:String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0'),period:GFQ_PERIODS.includes(p)?p:gfqPeriodOfHour(h)};
+      }
+    }
+    if(/정오/.test(s))return {time:'12:00',period:'점심'};
+    if(/자정/.test(s))return {time:'00:00',period:'심야'};
+    return null;
+  }
+  // A period named or described in a text ('해가 지고' → 저녁).
+  function gfqPeriodIn(text){
+    const s=String(text||'');
+    for(const [p,re] of [['심야',/심야|한밤중|자정/],['새벽',/새벽|동틀|동이 트|여명/],['저녁',/저녁|노을|해 질|해가 지|석양|땅거미|퇴근길/],['점심',/점심|정오|한낮/],['아침',/아침|해가 뜨|해돋이|조식|출근길/],['오전',/오전/],['오후',/오후|해가 기울/],['밤',/밤(?![나송톨])|달빛|야간|어둠이 내려/]])if(re.test(s))return p;
+    return '';
+  }
+  // A story day runs from 04:00 to 04:00, so '밤 → 심야' is the same night and '밤 → 아침' is the next day.
+  function gfqClockRank(c){
+    if(!c)return null;
+    if(c.time){const h=+c.time.slice(0,2),m=+c.time.slice(3,5);return (h<4?h+24:h)*60+m;}
+    const i=GFQ_PERIODS.indexOf(c.period);return i<0?null:[4,6,9,12,14,18,21,24][i]*60;
+  }
+  // true when going from clock a to clock b means a new day (b is clearly earlier in the day than a).
+  function gfqClockWraps(a,b){const x=gfqClockRank(a),y=gfqClockRank(b);return x!==null&&y!==null&&y<x-90;}
+  function gfqClockText(c){
+    if(!c)return '';
+    if(!c.time)return c.period||'';
+    const h=+c.time.slice(0,2),mi=c.time.slice(3,5);
+    return (c.period||gfqPeriodOfHour(h))+' '+(h%12||12)+(mi==='00'?'시':':'+mi);
+  }
+  const gfqClockOf=o=>o&&(o.time||o.period)?{...(o.time?{time:o.time}:{}),period:o.period||gfqPeriodOfHour(+String(o.time).slice(0,2))}:null;
+  // Pure: validate the AI's clock for one batch. A time must be written in its evidence; a period must be named or described there.
+  function gfqClockFrom(tl,texts){
     if(!tl||typeof tl!=='object')return null;
+    const loc=raw=>{raw=typeof raw==='string'?raw.trim():'';if(raw.length<2)return null;return gfqLocateEvidence(raw,texts)||(texts.some(t=>String(t).includes(raw))?raw:null);};
+    const hm=typeof tl.currentTime==='string'?tl.currentTime.trim().match(/^(\d{1,2}):(\d{2})$/):null;
+    if(hm&&+hm[1]<24&&+hm[2]<60){
+      const tev=loc(tl.timeEvidence),c=tev?gfqTimeIn(tev,''):null,want=String(+hm[1]).padStart(2,'0')+':'+hm[2];
+      if(c&&(c.time===want||(+c.time.slice(0,2))%12===(+hm[1])%12&&c.time.slice(3)===hm[2]))return {time:want,period:gfqPeriodOfHour(+hm[1]),timeEvidence:tev};
+    }
+    const p=typeof tl.timeOfDay==='string'?tl.timeOfDay.trim():'';
+    if(GFQ_PERIODS.includes(p)){
+      const pev=loc(tl.timeOfDayEvidence),c=pev?gfqTimeIn(pev,''):null;
+      if(pev&&(gfqPeriodIn(pev)===p||c?.period===p))return {period:p,timeEvidence:pev};
+    }
+    return null;
+  }
+  // Pure: validate the AI's timeline for one batch. Returns {date,basis,evidence[,time,period,timeEvidence]} or null.
+  function gfqTimelineFrom(tl,texts,prevDate,prevClock){
+    if(!tl||typeof tl!=='object')return null;
+    const clock=gfqClockFrom(tl,texts),withClock=o=>clock?{...o,...clock}:o;
     const ev=typeof tl.dateEvidence==='string'&&tl.dateEvidence.trim().length>=4?gfqLocateEvidence(tl.dateEvidence.trim(),texts):null;
     const date=typeof tl.currentDate==='string'?tl.currentDate.trim():'';
-    if(ev&&date&&gfqDatesIn(ev).includes(date))return {date,basis:'원문',evidence:ev};
+    if(ev&&date&&gfqDatesIn(ev).includes(date))return withClock({date,basis:'원문',evidence:ev});
     const raw=typeof tl.daysEvidence==='string'?tl.daysEvidence.trim():'';
     // Day-change cues are short ('다음 날 아침'), so a verbatim match is accepted here.
     const n=Number(tl.daysPassed),dev=raw.length>=2?(gfqLocateEvidence(raw,texts)||(texts.some(t=>String(t).includes(raw))?raw:null)):null;
-    if(prevDate&&Number.isSafeInteger(n)&&n>=1&&n<=60&&dev&&GFQ_DAY_WORDS.test(dev))return {date:gfqAddDays(prevDate,n),basis:'추정',evidence:dev};
+    if(prevDate&&Number.isSafeInteger(n)&&n>=1&&n<=60&&dev&&GFQ_DAY_WORDS.test(dev))return withClock({date:gfqAddDays(prevDate,n),basis:'추정',evidence:dev});
+    // v0.13.0: no written day change, but the clock went back (밤 → 아침): the next morning. Otherwise the same day.
+    if(prevDate&&clock)return {date:gfqClockWraps(prevClock,clock)?gfqAddDays(prevDate,1):prevDate,basis:'추정',evidence:clock.timeEvidence,...clock};
     return null;
   }
+  // Pure: the AI's world-fitting date for a story that never writes one. A year the story does write wins over the AI's.
+  function gfqWorldDateFrom(tl,texts){
+    const raw=typeof tl?.worldDate==='string'?tl.worldDate.trim():'';
+    const m=raw.match(/^(\d{1,4})-(\d{1,2})-(\d{1,2})$/);if(!m)return null;
+    const years=gfqYearsIn((texts||[]).join('\n'));
+    const y=years.length&&!years.some(v=>v.year===+m[1])?years[0].year:+m[1];
+    const date=gfqYmd(y,+m[2],+m[3]);if(!date)return null;
+    const era=typeof tl.era==='string'?tl.era.trim():'';
+    const clock=gfqClockOf({time:/^\d{2}:\d{2}$/.test(String(tl.worldTime||''))&&+String(tl.worldTime).slice(0,2)<24?tl.worldTime:'',period:GFQ_PERIODS.includes(tl.worldTimeOfDay)?tl.worldTimeOfDay:''});
+    return {date,reason:String(tl.worldDateReason||'').replace(/\s+/g,' ').trim().slice(0,120),
+      ...(era&&/^[가-힣]{1,5}(?:력|기)$/.test(era)&&(texts||[]).some(t=>String(t).includes(era))?{era}:{}),...(clock||{})};
+  }
+  // Years written in the story ('2033년', '제국력 312년'), most frequent first.
+  function gfqYearsIn(text){
+    const n=new Map();
+    for(const m of String(text||'').matchAll(/(?:([가-힣]{1,5}(?:력|기))\s*)?(\d{1,4})\s*년(?!\s*(?:전|후|뒤|간|째|동안|만|차|생))(?:\s*(\d{1,2})\s*월)?/gu)){
+      if(m[2].length<4&&!m[1])continue;const y=+m[2];if(!(y>=1&&y<=9999))continue;
+      const e=n.get(y)||{year:y,count:0,era:m[1]||'',month:0};e.count++;if(m[1])e.era=m[1];if(m[3]&&+m[3]>=1&&+m[3]<=12)e.month=+m[3];n.set(y,e);
+    }
+    return [...n.values()].sort((a,b)=>b.count-a.count);
+  }
+  // Pure fallback when no AI answer is available: a written year (or this year) and the season the story describes.
+  function gfqGuessWorldDate(w,nowYear){
+    const text=gfqStoryRecords(w).map(r=>r.text).join('\n')+'\n'+String(w?.gfDisplayName||'');
+    const y=gfqYearsIn(text)[0]||null;
+    const count=re=>(text.match(re)||[]).length;
+    const seasons=[[4,1,'봄',count(/봄|벚꽃|개나리|입학식|새 학기/gu)],[7,15,'여름',count(/여름|장마|매미|폭염|열대야/gu)],[10,10,'가을',count(/가을|단풍|낙엽|추석/gu)],[12,15,'겨울',count(/겨울|눈이 내|폭설|함박눈|크리스마스|성탄/gu)]].sort((a,b)=>b[3]-a[3]);
+    const s=seasons[0][3]?seasons[0]:null,month=y?.month||(s?s[0]:3),day=y?.month?1:(s?s[1]:2);
+    const year=y?y.year:(nowYear||new Date().getFullYear());
+    const reason=[y?'원문의 '+(y.era?y.era+' ':'')+y.year+'년'+(y.month?' '+y.month+'월':''):'연도 단서 없음 → 현재 연도',s&&!y?.month?s[2]+' 묘사':''].filter(Boolean).join(', ');
+    return {date:gfqYmd(year,month,day),reason,...(y?.era?{era:y.era}:{})};
+  }
   function gfqCurrentDate(w){
-    const auto=Object.entries(w?.gfDates||{}).map(([ch,v])=>({ch:Number(ch)||0,...v})).sort((a,b)=>a.ch-b.ch).pop()||null;
+    const auto=Object.entries(w?.gfDates||{}).map(([ch,v])=>({ch:Number(ch)||0,...v})).filter(v=>v.date).sort((a,b)=>a.ch-b.ch).pop()||null;
     // v0.4.6: a date line the reader has reached, or a manual entry, is 'now'. Dates analysed ahead
     // of the reader (a chapter generated but not yet read) only apply to later chapters.
-    const man=w?.gfDateManual?{...w.gfDateManual,basis:'직접 입력',ms:Number(w.gfDateManual.ms||0)}:null;
-    const read=w?.gfReadingDate?{...w.gfReadingDate,basis:'읽은 장면',ms:Number(w.gfReadingDate.ms||0)}:null;
+    const man=w?.gfDateManual?{...w.gfDateManual,basis:w.gfDateManual.by==='ai'?'세계관 추정':'직접 입력',ms:Number(w.gfDateManual.ms||0)}:null;
+    const read=w?.gfReadingDate?{...w.gfReadingDate,basis:w.gfReadingDate.est?'추정':'읽은 장면',ms:Number(w.gfReadingDate.ms||0)}:null;
     const live=[man,read].filter(Boolean).sort((a,b)=>a.ms-b.ms).pop()||null;
-    if(live&&(!auto||Number(live.chapter||0)>=auto.ch))return {date:live.date,basis:live.basis,source:live.chapter?'챕터 '+live.chapter+(live.basis==='직접 입력'?' 이후':''):'',chapter:Number(live.chapter||0)};
-    return auto?{date:auto.date,basis:auto.basis,source:'챕터 '+auto.ch,chapter:auto.ch,evidence:auto.evidence}:null;
+    const clock=o=>gfqClockOf(o)||{};
+    if(live&&(!auto||Number(live.chapter||0)>=auto.ch))return {date:live.date,basis:live.basis,source:live.chapter?'챕터 '+live.chapter+(live.basis==='직접 입력'?' 이후':''):'',chapter:Number(live.chapter||0),ms:live.ms,...(live.reason?{reason:live.reason}:{}),...clock(live)};
+    if(auto)return {date:auto.date,basis:auto.basis,source:'챕터 '+auto.ch,chapter:auto.ch,evidence:auto.evidence,...clock(auto)};
+    // v0.13.0: the story has not written a date yet: the world-fitting date chosen for it.
+    const a=w?.gfDateAnchor;
+    return a?.date?{date:a.date,basis:'세계관 추정',source:a.chapter?'챕터 '+a.chapter+'부터':'',chapter:Number(a.chapter||0),ms:Number(a.ms||0),...(a.reason?{reason:a.reason}:{}),...clock(a)}:null;
   }
-  const gfqWeekday=ymd=>{const [y,m,d]=ymd.split('-').map(Number);return '일월화수목금토'[new Date(Date.UTC(y,m-1,d)).getUTCDay()];};
-  function gfqDayDiff(a,b){const t=x=>{const [y,m,d]=x.split('-').map(Number);return Date.UTC(y,m-1,d);};return Math.round((t(b)-t(a))/864e5);}
+  // v0.13.0: the time of day now. A clock reading counts only for the date it was read on.
+  function gfqCurrentClock(w){
+    const d=gfqCurrentDate(w),cands=[];
+    if(d&&(d.time||d.period))cands.push({...d,ms:Number(d.ms||0),chapter:Number(d.chapter||0),date:d.date});
+    for(const [k,basis] of [['gfReadingTime','읽은 장면'],['gfTimeManual','직접 입력']]){const c=w?.[k];if(c&&(c.time||c.period))cands.push({...c,basis,ms:Number(c.ms||0),chapter:Number(c.chapter||0)});}
+    const ok=cands.filter(c=>!d||(c.chapter>=Number(d.chapter||0)&&c.ms>=Number(d.ms||0)&&(!c.date||c.date===d.date)));
+    const best=ok.sort((a,b)=>a.ms-b.ms).pop();
+    return best?{...gfqClockOf(best),basis:best.basis}:null;
+  }
+  const gfqWeekday=ymd=>{const [y,m,d]=ymd.split('-').map(Number);return '일월화수목금토'[gfqUTC(y,m,d).getUTCDay()];};
+  function gfqDayDiff(a,b){const t=x=>{const [y,m,d]=x.split('-').map(Number);return gfqUTC(y,m,d).getTime();};return Math.round((t(b)-t(a))/864e5);}
+  // Display: '2033.04.09', or '제국력 312년 4월 9일' in a world with its own calendar (no weekday there).
+  function gfqDateText(w,ymd){
+    if(!ymd)return '';const [y,m,d]=ymd.split('-').map(Number);
+    return w?.gfEra?w.gfEra+' '+y+'년 '+m+'월 '+d+'일':y<1000?y+'년 '+m+'월 '+d+'일':ymd.replace(/-/g,'.');
+  }
+  function gfqDayText(w,ymd){if(!ymd)return '';const wd=w?.gfEra?'':gfqWeekday(ymd);return gfqDateText(w,ymd)+(wd?' ('+wd+')':'');}
   // '내일 이 시간' said in chapter 3 → the date it points to, when chapter 3's date is known.
   function gfqResolveTiming(w,t){
     if(!t||!t.text)return null;
     const ch=(String(t.anchor||'').match(/챕터\s*(\d+)/u)||[])[1];
-    const base=t.base||(ch&&w?.gfDates?.[ch]?.date)||null;if(!base)return null;
+    const cur=ch&&!w?.gfDates?.[ch]?.date?gfqCurrentDate(w):null;
+    const base=t.base||(ch&&w?.gfDates?.[ch]?.date)||(cur&&Number(cur.chapter)===Number(ch)?cur.date:null)||null;if(!base)return null;
     const m=t.text.match(/(\d+)\s*일\s*(?:후|뒤)/u);
     const n=m?+m[1]:/모레/.test(t.text)?2:/(내일|익일|다음\s?날)/u.test(t.text)?1:/(오늘|금일)/.test(t.text)?0:null;
     return n===null?null:gfqAddDays(base,n);
   }
   // v0.4.5: date headings. A line that is just a date ('2033-04-09', '[2033년 4월 9일 (수)]') sets the date
   // for every line below it until the next heading, across scenes and chapters.
-  function gfqDateHeading(line){
-    const t=String(line||'').trim().replace(/^[\[\(<【〈《「『\s]+/u,'');
+  // v0.13.0: also '4월 9일 (수) 저녁', '3일차', 'DAY 3', 'D+2', a time line ('오후 3시 20분', '[밤]') and fictional eras.
+  // Pure: a marker line → {date?,era?,md?,day?,time?,period?}; anything else → null.
+  function gfqParseStamp(line){
+    let t=String(line||'').trim();
     if(!t||t.length>40)return null;
-    const m=t.match(/^(\d{4})\s*(?:[-./]|년\s*)\s*(\d{1,2})\s*(?:[-./]|월\s*)\s*(\d{1,2})\s*일?/u);
-    return m?gfqYmd(+m[1],+m[2],+m[3]):null;
+    const deco=/^[\[\(<【〈《「『*#\-—–~=]/u.test(t);
+    t=t.replace(/^[\[\(<【〈《「『*#\-—–~=\s]+/u,'');
+    let out=null,rest='',m;
+    if((m=t.match(/^(?:([가-힣]{1,5}(?:력|기))\s*)?(\d{1,4})\s*(년\s*|[-./])\s*(\d{1,2})\s*(?:[-./]|월\s*)\s*(\d{1,2})\s*일?/u))&&(m[2].length===4||m[1]||/년/.test(m[3]))){
+      const d=gfqYmd(+m[2],+m[4],+m[5]);if(d){out={date:d,...(m[1]?{era:m[1]}:{})};rest=t.slice(m[0].length);}
+    }
+    let strict=false;
+    if(!out&&(m=t.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일/u))&&+m[1]>=1&&+m[1]<=12&&+m[2]>=1&&+m[2]<=31){out={md:[+m[1],+m[2]]};rest=t.slice(m[0].length);strict=true;}
+    if(!out&&(m=t.match(/^(?:제\s*)?(\d{1,4})\s*일\s*차|^day\s*(\d{1,4})(?![\d])|^d\s*\+\s*(\d{1,4})(?![\d])/iu))){out={day:m[1]?+m[1]:m[2]?+m[2]:+m[3]+1};rest=t.slice(m[0].length);strict=true;if(!(out.day>=1))return null;}
+    if(out){
+      const c=gfqTimeIn(rest,'');
+      if(c)Object.assign(out,c);else{const p=gfqPeriodIn(rest);if(p)out.period=p;}
+      // a month-day or day-count line must be a marker, not the start of a sentence ('4월 9일, 그녀는 …')
+      if(strict&&rest.replace(/[월화수목금토일]요일|\([월화수목금토일]\)/gu,'').replace(/\d{1,2}\s*(?::\s*\d{2}|시(?:\s*\d{1,2}\s*분|\s*반)?)/gu,'').replace(/오전|오후|새벽|아침|낮|점심|저녁|밤|심야|정오|자정|무렵|즈음|쯤|경/gu,'').replace(/[\s\[\]\(\)<>【】〈〉《》「」『』*#\-—–~=.,·|:]+/gu,'').length)return null;
+      return out;
+    }
+    // a line that is only a time: '오후 3시 20분', '[밤]', '— 새벽 —'
+    const bare=t.replace(/[\]\)>】〉》」』*#\-—–~=\s.,]+$/u,'').trim();
+    if(!bare||bare.length>16)return null;
+    if(/^(?:(?:오전|오후|새벽|아침|낮|점심|저녁|밤|심야)\s*\d{1,2}\s*(?::\s*\d{2}|시(?:\s*(?:\d{1,2}\s*분|반))?)|\d{1,2}\s*시(?:\s*(?:\d{1,2}\s*분|반))?|정오|자정)(?:\s*(?:무렵|경|즈음|쯤))?$/u.test(bare))return gfqTimeIn(bare,'');
+    if(deco){const p=bare.replace(/\s*(?:무렵|즈음|쯤)$/u,'');if(GFQ_PERIODS.includes(p))return {period:p};}
+    return null;
+  }
+  function gfqDateHeading(line){const s=gfqParseStamp(line);return s&&s.date||null;}
+  // Pure: a parsed marker → the date it names, given the date in force, the last 'N일차' seen and the world-fitting date.
+  function gfqResolveStamp(s,cur,lastDay,anchor){
+    if(!s)return null;
+    if(s.date)return s.date;
+    if(s.md){
+      const base=cur||anchor;if(!base)return null;const y=+base.slice(0,4);
+      let d=gfqYmd(y,s.md[0],s.md[1]);if(!d)return null;
+      if(gfqDayDiff(base,d)<-200)d=gfqYmd(y+1,s.md[0],s.md[1])||d; // the year rolled over
+      return d;
+    }
+    if(s.day){
+      if(lastDay?.date&&lastDay.n)return gfqAddDays(lastDay.date,s.day-lastDay.n);
+      if(cur)return cur;
+      return anchor?gfqAddDays(anchor,s.day-1):null;
+    }
+    return null;
   }
   function gfqDateMap(w){
-    let cur=null;const recs=[];
+    let cur=null,lastDay=null,clock=null,est=false;const recs=[],anchor=w?.gfDateAnchor?.date||null;
     for(const r of gfqStoryRecords(w)){
-      const changes=[],start=cur;let off=0;
-      for(const line of r.text.split('\n')){const d=gfqDateHeading(line);if(d){changes.push({at:off,date:d});cur=d;}off+=line.length+1;}
-      recs.push({source:r.source,text:r.text,start,changes,end:cur});
+      const changes=[],start=cur;let off=0,hasDate=false,hasClock=false;
+      for(const line of r.text.split('\n')){
+        const s=gfqParseStamp(line);
+        if(s){
+          let d=gfqResolveStamp(s,cur,lastDay,anchor);const c=gfqClockOf(s),marked=!!d;
+          // a clock going back without a date marker: the next day (an estimate the AI timeline may still refine)
+          if(!d&&c&&cur&&gfqClockWraps(clock,c)){d=gfqAddDays(cur,1);est=true;}
+          else if(d)est=!s.date&&!(s.md&&cur)&&!(s.day&&(lastDay||cur));
+          if(d){if(d!==cur)clock=null;cur=d;if(marked)hasDate=true;if(s.day)lastDay={n:s.day,date:d};}
+          if(c){clock=c;hasClock=true;}
+          if(cur&&(d||c))changes.push({at:off,date:cur,...(s.era?{era:s.era}:{}),...(clock||{})});
+        }
+        off+=line.length+1;
+      }
+      recs.push({source:r.source,text:r.text,start,changes,end:cur,endClock:clock,endEst:est,hasDate,hasClock});
     }
     return recs;
   }
@@ -1604,11 +1782,21 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     }
     return null;
   }
-  function gfqHeadingDates(map){
-    const out={};
-    for(const r of map){const ch=(String(r.source).match(/^챕터\s*([^·\s]+)/u)||[])[1];if(ch&&ch!=='?'&&r.changes.length)out[ch]={date:r.end,basis:'원문',evidence:'날짜 표시 '+r.end,source:'챕터 '+ch};}
+  // Per chapter: the date (and clock) its markers leave in force. kind 'date' = chapters with a date marker,
+  // 'clock' = chapters with only time markers (their date is the one carried in).
+  function gfqHeadingDates(map,kind='date'){
+    const chOf=r=>(String(r.source).match(/^챕터\s*([^·\s]+)/u)||[])[1];
+    const dated=new Set(map.filter(r=>r.hasDate).map(chOf)),out={};
+    for(const r of map){
+      const ch=chOf(r);
+      if(!ch||ch==='?'||!r.changes.length||!r.end||(kind==='date')!==dated.has(ch))continue;
+      const c=r.endClock;
+      out[ch]={date:r.end,basis:kind==='date'&&!r.endEst?'원문':'추정',evidence:(kind==='date'?'날짜 표시 ':'시각 표시 ')+r.end+(c?' '+gfqClockText(c):''),source:'챕터 '+ch,...(c||{})};
+    }
     return out;
   }
+  const gfqHeadingClocks=map=>gfqHeadingDates(map,'clock');
+  const gfqMapEra=map=>{for(const r of map)for(const c of r.changes)if(c.era)return c.era;return '';};
   function gfqStampDates(map,p){
     p.date=gfqDateAt(map,p.evidence)||p.date||null;
     if(p.category==='quest'){const l=gfqEvidenceList(p);p.endDate=gfqDateAt(map,l[l.length-1])||p.date;}
@@ -2165,13 +2353,14 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   function aiAnalysisPrompt(w, records, contextText){
     const ctx=gfqRuleCtx(w),hero=ctx.hero?'주인공 '+ctx.hero:'주인공(플레이어 캐릭터)';
     const today=gfqCurrentDate(w);
-    if(today)contextText=('[세계관 날짜] '+today.date+' ('+today.basis+(today.source?' · '+today.source:'')+')')+(contextText?'\n'+contextText:'');
+    const clockNow=gfqCurrentClock(w);
+    if(today)contextText=('[세계관 날짜] '+today.date+(w.gfEra?' ('+gfqDateText(w,today.date)+')':'')+(clockNow?' '+gfqClockText(clockNow)+(clockNow.time?' ('+clockNow.time+')':''):'')+' ('+today.basis+(today.source?' · '+today.source:'')+')')+(contextText?'\n'+contextText:'');
     const input=(records||gfqStoryRecords(w)).map(x=>'['+x.source+']\n'+x.text).join('\n\n');
     const owned=(w.items||[]).filter(i=>i.state!=='pending'&&i.kind!=='voucher'&&i.qty>0).slice(-60).map(i=>i.name+' ×'+i.qty).join(', ').slice(0,1500);
     return [
       '아이템 장비 옵션은 원문에 명시된 경우에만 equipType(무기|방어구|장신구|도구), equipSlot(장착 부위), equipOptions(원문에 그대로 적힌 옵션 내용), equipEvidence(원문 연속 인용)를 JSON 사건 필드에 추가합니다. 추측 옵션이나 실제 착용 여부는 만들지 마세요.',
       '한국어 RPG 세계의 사건과 금전 출납부를 분석합니다. 입력에 없는 사실과 금액은 절대 추정하지 않습니다. 줄거리 출처에 \'게임 기록: 클리어\'가 있으면 그 챕터의 임무가 게임에서 마무리됐다는 참고 정보입니다.',
-      '반환 JSON: {"timeline":{"currentDate":"분석 대상 마지막 장면 시점의 세계관 날짜 YYYY-MM-DD, 원문에 날짜가 적혀 있을 때만","dateEvidence":"그 날짜가 적힌 원문 인용","daysPassed":"[세계관 날짜] 이후 마지막 장면까지 지난 날 수(원문에 다음 날·이틀 뒤처럼 적힌 경우만) 또는 null","daysEvidence":"날이 바뀐 원문 인용"},"events":[{"category":"quest|asset|item|credential|contract|benefit","name":"한국어 제목","status":"completed|active|confirmed|uncertain","financialStatus":"received|paid|pending|receivable|waived|ownership|conditional|not_applicable|uncertain","evidence":"원문에서 그대로 복사한 짧은 연속 문자열","source":"챕터/장면","amount":숫자 또는 null,"unit":"원문의 화폐 단위 그대로(원·골드·냥·전·금화·크레딧 등)|%|개 등","transactionId":"동일 계약 또는 정산 사건을 나타내는 간결한 문자열","linkTo":"이전 맥락 목록의 ID(t1, i2 등) 또는 빈 문자열","benefitUses":"혜택일 때 사용 가능 횟수(명시 없으면 1) 또는 null","benefitPermanent":false,"benefitConsumed":false,"purchasedItems":[{"name":"구매한 물품","qty":1,"received":true}],"soldItems":[{"name":"판매한 물품","qty":1}],"timing":"지급·수령·완료 시점을 나타내는 원문 표현 그대로(예: 내일 이 시간, 임무 완료 시, 금일 오후 6시) 또는 빈 문자열","owner":"player|npc|organization|unknown","eventKind":"task|payment|expense|discount|property|item_transfer|credential|contract","questTitle":"퀘스트형 간결한 제목","questObjective":"목표와 완료 조건을 자연스러운 문장으로 요약","questRewards":[{"name":"보상 명칭","kind":"money|item|credential|reputation|benefit|other","certainty":"received|confirmed|pending|suggested|uncertain","amount":null,"unit":"","evidence":"원문 인용 또는 빈 문자열"}]}]}',
+      '반환 JSON: {"timeline":{"currentDate":"분석 대상 마지막 장면 시점의 세계관 날짜 YYYY-MM-DD, 원문에 날짜가 적혀 있을 때만","dateEvidence":"그 날짜가 적힌 원문 인용","daysPassed":"[세계관 날짜] 이후 마지막 장면까지 지난 날 수(원문에 다음 날·이틀 뒤처럼 적힌 경우만) 또는 null","daysEvidence":"날이 바뀐 원문 인용","currentTime":"마지막 장면 시점의 시각 HH:MM(24시간제), 원문에 시각이 적혀 있을 때만","timeEvidence":"그 시각이 적힌 원문 인용","timeOfDay":"마지막 장면의 때 새벽|아침|오전|점심|오후|저녁|밤|심야 중 하나, 원문 묘사로 알 수 있을 때만","timeOfDayEvidence":"그 때를 알 수 있는 원문 인용(예: 해가 지고, 점심을 먹고)"'+(today?'':',"worldDate":"원문에 날짜가 전혀 없을 때만: 이 세계관의 시대·계절·배경에 어울리는 그럴듯한 오늘 날짜 YYYY-MM-DD","worldDateReason":"그 날짜를 고른 근거 한 문장","era":"원문에 고유 연호(예: 제국력)가 있으면 그 이름, 없으면 빈 문자열"')+'},"events":[{"category":"quest|asset|item|credential|contract|benefit","name":"한국어 제목","status":"completed|active|confirmed|uncertain","financialStatus":"received|paid|pending|receivable|waived|ownership|conditional|not_applicable|uncertain","evidence":"원문에서 그대로 복사한 짧은 연속 문자열","source":"챕터/장면","amount":숫자 또는 null,"unit":"원문의 화폐 단위 그대로(원·골드·냥·전·금화·크레딧 등)|%|개 등","transactionId":"동일 계약 또는 정산 사건을 나타내는 간결한 문자열","linkTo":"이전 맥락 목록의 ID(t1, i2 등) 또는 빈 문자열","benefitUses":"혜택일 때 사용 가능 횟수(명시 없으면 1) 또는 null","benefitPermanent":false,"benefitConsumed":false,"purchasedItems":[{"name":"구매한 물품","qty":1,"received":true}],"soldItems":[{"name":"판매한 물품","qty":1}],"timing":"지급·수령·완료 시점을 나타내는 원문 표현 그대로(예: 내일 이 시간, 임무 완료 시, 금일 오후 6시) 또는 빈 문자열","owner":"player|npc|organization|unknown","eventKind":"task|payment|expense|discount|property|item_transfer|credential|contract","questTitle":"퀘스트형 간결한 제목","questObjective":"목표와 완료 조건을 자연스러운 문장으로 요약","questRewards":[{"name":"보상 명칭","kind":"money|item|credential|reputation|benefit|other","certainty":"received|confirmed|pending|suggested|uncertain","amount":null,"unit":"","evidence":"원문 인용 또는 빈 문자열"}]}]}',
       '반드시 화폐 단위가 있는 모든 입금/이체/정산/수당/보수/급여/보상/지급 완료 서술을 빠짐없이 검사합니다. 완료된 입금은 financialStatus=received, 돈을 지출했으면 paid, 약속한 미래 지급이면 pending, 받을 권리가 확정됐으나 미입금이면 receivable, 면제는 waived, 지분은 ownership으로 분류합니다. 화폐는 세계관마다 다릅니다(원, 골드, 냥, 전, 푼, 금화, 은화, 크레딧 등). unit에는 원문 단위를 그대로 적고, "닷 냥", "은화 서른 닢"처럼 글자로 쓴 수도 amount에 숫자로 넣습니다. 철수·실패처럼 어떤 조건이 생길 때만 보장되는 최소 금액(예: 중도 철수 시 기본급 50% 보장)은 conditional로 분류하며, 다른 보수에 더해지는 돈이 아닙니다.',
       '거래의 지급 의사나 보장만으로 실제 입금(received)으로 처리하지 않습니다. 금액을 확정했지만 입금 문장이 없으면 received를 쓰지 않습니다. 총액과 그 구성 수당은 같은 transactionId를 사용하고 각각 중복 수입으로 합산하지 않습니다.',
       'name은 반드시 한국어로 씁니다. 수당·보수·기본급·정산금처럼 돈으로 받는 것은 혜택(benefit)이 아니라 category=asset입니다.',
@@ -2180,6 +2369,9 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
       '돈을 내고 물건을 산 구매는 category=asset, financialStatus=paid, eventKind=expense로 출력하고 purchasedItems에 산 물품과 수량을 넣습니다. 주문만 하고 아직 받지 않았으면 received=false입니다. 물건이 없는 지출(숙박비, 수수료 등)은 purchasedItems를 빈 배열로 둡니다.',
       '원문에 날짜만 적힌 줄(예: 2033-04-09)은 그 아래 장면의 날짜 표시입니다. 확장이 이 표시로 날짜를 직접 정하므로, 날짜 표시가 있으면 currentDate는 마지막 날짜 표시와 같게 씁니다.',
       'timeline에는 원문에 적힌 날짜와 날짜 변화만 넣습니다. 날짜가 적힌 문서·면허·통지 등이 오늘 발급·작성된 것이 분명할 때만 그 날짜를 currentDate로 씁니다. 과거·미래의 다른 날을 가리키는 날짜는 쓰지 않습니다. 근거가 없으면 빈 문자열과 null로 둡니다.',
+      '원문에 \'4월 9일\'처럼 연도 없는 날짜만 있으면 [세계관 날짜]의 연도로 YYYY-MM-DD를 채웁니다. 세계관 고유 연호(예: 제국력 312년)는 숫자 연도를 그대로 씁니다(0312-04-09).',
+      'currentTime·timeOfDay는 마지막 장면의 시점만 씁니다. 회상·예정된 다른 시각은 쓰지 않습니다. 시각이 적혀 있지 않아도 해가 지는 묘사, 점심 식사, 잠자리에 드는 장면처럼 때를 알 수 있으면 timeOfDay와 그 원문 인용을 씁니다.',
+      ...(today?[]:['아직 [세계관 날짜]가 없습니다. 원문에 날짜가 전혀 없으면 worldDate에 세계관에 맞는 그럴듯한 날짜를 하나 정해 주세요. 원문에 연도(예: 2033년)나 계절 단서가 있으면 반드시 따르고, 현대·근미래 배경은 그 시대에 맞는 연도, 고유 연호가 있는 판타지 세계는 그 연호의 연도를 씁니다.']),
       '지난 지급을 되짚는 문장(예: 전날 A 1,200,000원과 오늘 B 1,300,000원에 이어 이번 금액까지 합계 3,900,000원)은 새 수입이 아닙니다. 각 과거 지급은 이전 맥락에 같은 항목이 있으면 linkTo로 연결하고 원문 금액을 amount에 넣어 금액을 보완합니다. 이전 맥락에 없으면 별도 항목으로 출력하되, 합계 금액은 출력하지 않습니다.',
       '물건을 팔고 대금을 받은 판매는 category=asset, eventKind=payment로 출력하고 soldItems에 판 물품과 수량을 넣습니다. 대금을 실제로 받았으면 received, 받기로만 했으면 receivable 또는 pending입니다.',
       'N원·N골드 상당처럼 값만 적힌 물품·장비·세트는 돈이 아닙니다. category=item으로 출력하고, 아직 받지 않았으면 financialStatus=pending, amount=null로 둡니다. 받을 돈(receivable)으로 처리하지 않습니다.',
@@ -2463,6 +2655,49 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     if(r.error)return alert('AI 분석에 실패했습니다: '+r.error);
     alert('AI 분석이 완료되었습니다. '+r.found+'개의 새 후보를 찾았습니다.'+(r.applied?'\n자동 반영 '+r.applied+'개 · 검토 필요 '+r.left+'개':'')+'\n\n'+gfqAnalysisSummary(r.world.gfLastAnalysis));
   }
+  // v0.13.0: the world-fitting starting date (used only while the story itself writes no date).
+  function gfqSetAnchor(w,g,chapter,by){
+    w.gfDateAnchor={date:g.date,chapter:String(chapter||''),by,at:now(),ms:Date.now(),...(g.reason?{reason:g.reason}:{}),...(gfqClockOf(g)||{})};
+    if(g.era&&!w.gfEra)w.gfEra=g.era;
+    record(w,'세계관 날짜 지정 ('+(by==='ai'?'AI 추정':'자동')+'): '+g.date+(g.reason?' · '+g.reason:''));
+  }
+  // The latest chapter the world knows of: a typed date applies from there on.
+  function gfqLatestChapter(w,c){
+    const n=[...Object.keys(w.gfDates||{}),...(w.gfStorySamples||[]).map(x=>x.chapter),...(w.gfChapterIndex||[]).map(x=>x.chapter),c?.chapter||0].map(Number).filter(Number.isFinite);
+    return Math.max(0,...n);
+  }
+  // v0.13.0: the first date the story itself writes (or the player types) confirms the calendar. Every estimate made
+  // before it (the world-fitting date and days counted from it) moves by the same number of days, so promises
+  // counted from an estimate do not turn up as overdue. Returns the shift in days.
+  function gfqRebase(w,written){
+    const a=w?.gfDateAnchor;if(!a?.date||a.confirmed||!written)return 0;
+    const cur=gfqCurrentDate(w),from=cur&&/추정/.test(cur.basis)?cur.date:a.date,delta=gfqDayDiff(from,written);
+    a.confirmed=true;if(!delta)return 0;
+    const sh=d=>d?gfqAddDays(d,delta):d;
+    a.date=sh(a.date);
+    for(const v of Object.values(w.gfDates||{}))if(v&&v.basis==='추정')v.date=sh(v.date);
+    if(w.gfDateManual?.by==='ai')w.gfDateManual.date=sh(w.gfDateManual.date);
+    if(w.gfReadingDate?.est)w.gfReadingDate.date=sh(w.gfReadingDate.date);
+    for(const k of ['gfReadingTime','gfTimeManual','gfDayIndex'])if(w[k]?.date)w[k].date=sh(w[k].date);
+    record(w,'추정 날짜를 원문 날짜에 맞춤: '+(delta>0?'+':'')+delta+'일 ('+from+' → '+written+')');
+    return delta;
+  }
+  // v0.13.0: ask the analysis model for a date (and time of day) that fits the world. The reply is validated like any other.
+  async function gfqAiWorldDate(w){
+    const host=typeof marinara==='object'&&marinara?marinara:globalThis.marinara||{};
+    const recs=gfqStoryRecords(w),premise=recs.filter(r=>/줄거리/.test(r.source)).map(r=>'['+r.source+'] '+r.text).join('\n').slice(0,3500);
+    const recent=recs.filter(r=>!/줄거리/.test(r.source)).slice(-3).map(r=>'['+r.source+'] '+r.text).join('\n').slice(-2500);
+    const texts=recs.map(r=>r.text);
+    const prompt=['이 이야기 세계에 어울리는 \'오늘\'의 날짜와 때를 하나 정합니다. 반환 JSON: {"worldDate":"YYYY-MM-DD","era":"원문에 나오는 고유 연호 이름 또는 빈 문자열","worldTimeOfDay":"새벽|아침|오전|점심|오후|저녁|밤|심야 또는 빈 문자열","worldTime":"HH:MM 또는 빈 문자열","worldDateReason":"근거 한 문장"}',
+      '원문에 연도(예: 2033년)·계절·명절·학기 같은 단서가 있으면 반드시 따릅니다. 현대·근미래 배경은 그 시대에 맞는 연도, 고유 연호가 있는 판타지 세계는 그 연호의 연도(예: 0312-04-09)를 씁니다. 마지막 장면의 때(아침·밤 등)를 알 수 있으면 worldTimeOfDay에 씁니다.',
+      'JSON 외 다른 출력은 금지합니다.',
+      '월드: '+(w.gfDisplayName||data.world)+(w.protagonist?' · 주인공: '+w.protagonist:''),
+      '[줄거리]\n'+(premise||'(없음)'),'[최근 장면]\n'+(recent||'(없음)')].join('\n');
+    const raw=await gfqGenerate(host,String(data.aiConnectionId||'').trim(),'gfq-date-'+Date.now().toString(36),'Choose an in-world calendar date that fits the story world. Return only JSON.',prompt,600);
+    const m=String(raw||'').match(/\{[\s\S]*\}/);if(!m)throw Error('응답에서 JSON을 찾지 못했습니다');
+    const g=gfqWorldDateFrom(JSON.parse(m[0]),texts);if(!g)throw Error('날짜 형식이 올바르지 않습니다');
+    return g;
+  }
   async function gfqRunAnalysis(worldKey,batches,hashes,opts={}){
     const w=data.worlds[worldKey];
     if(!w)return {error:'월드를 찾지 못했습니다.'};
@@ -2479,8 +2714,10 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     try{
       const known=gfqKnownKeys(w);
       const eventsToAdd=[];
-      const dateMap=gfqDateMap(w),headed=gfqHeadingDates(dateMap);
+      let dateMap=gfqDateMap(w),headed=gfqHeadingDates(dateMap),anchored=false;
+      {const first=Object.entries(headed).filter(([,v])=>v.basis==='원문').sort((a,b)=>Number(a[0])-Number(b[0]))[0];if(first&&gfqRebase(w,first[1].date)){dateMap=gfqDateMap(w);headed=gfqHeadingDates(dateMap);}}
       w.gfDates={...(w.gfDates||{}),...headed};
+      if(!w.gfEra&&gfqMapEra(dateMap))w.gfEra=gfqMapEra(dateMap);
       for(let batchIndex=0;batchIndex<batches.length;batchIndex++){
         if(controller.signal.aborted){batches.slice(batchIndex).forEach(b=>chapterFailed.add(b.chapter));failures.push(batches.slice(batchIndex).map(b=>b.label).join(', ')+': 제한 시간 초과로 실행하지 않았습니다');break;}
         const linkCtx=gfqContextItems(w,[...(w.aiProposals||[]),...eventsToAdd]);
@@ -2492,8 +2729,12 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
           if(!parsed)throw Error('AI 응답에서 JSON 사건 목록을 찾지 못했습니다');
           if(parsed.partial)partialBatches++;
           const before=eventsToAdd.length;
-          const tl=gfqTimelineFrom(parsed.root?.timeline,segment.map(t=>t.text),gfqCurrentDate(w)?.date||null);
-          if(tl&&segment.chapter&&segment.chapter!=='?'&&!headed[segment.chapter]){w.gfDates||={};w.gfDates[segment.chapter]={...tl,source:segment.label};stats.dated=(stats.dated||0)+1;}
+          const root=parsed.root?.timeline,texts=segment.map(t=>t.text);
+          // v0.13.0: no date anywhere yet: take the AI's world-fitting date as the starting point.
+          if(!gfqCurrentDate(w)&&!headed[segment.chapter]&&!gfqTimelineFrom(root,texts,null,null)){const g=gfqWorldDateFrom(root,texts);if(g){gfqSetAnchor(w,g,segment.chapter,'ai');anchored=true;stats.anchored=gfqDateText(w,g.date);}}
+          const tl=gfqTimelineFrom(root,texts,gfqCurrentDate(w)?.date||null,gfqCurrentClock(w));
+          if(tl&&segment.chapter&&segment.chapter!=='?'&&!headed[segment.chapter]){if(tl.basis==='원문')gfqRebase(w,tl.date);w.gfDates||={};w.gfDates[segment.chapter]={...tl,source:segment.label};stats.dated=(stats.dated||0)+1;}
+          else if(tl&&headed[segment.chapter]&&!headed[segment.chapter].time&&!headed[segment.chapter].period&&(tl.time||tl.period)&&w.gfDates?.[segment.chapter]?.date===tl.date)Object.assign(w.gfDates[segment.chapter],gfqClockOf(tl));
           gfqCollectEvents(parsed.events.slice(0,75),segment.map(t=>t.text),w,known,eventsToAdd,stats);
           for(const p of eventsToAdd.slice(before))gfqApplyLink(p,linkCtx.map,stats);
           processed++;
@@ -2505,6 +2746,10 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
       }
       if(data.worlds[worldKey]!==w)throw Error('분석 중 월드 데이터가 바뀌어 결과를 적용하지 않았습니다.');
       if(!processed)throw Error('모든 회차의 분석에 실패했습니다.\n'+failures.slice(0,6).join('\n'));
+      // v0.13.0: still no date after the whole run: pick one from the story's own year and season.
+      if(!gfqCurrentDate(w)){const g=gfqGuessWorldDate(w);if(g.date){const first=batches.find(b=>b.chapter&&b.chapter!=='?');gfqSetAnchor(w,g,first?.chapter||'','guess');anchored=true;stats.anchored=gfqDateText(w,g.date);}}
+      if(anchored){dateMap=gfqDateMap(w);headed=gfqHeadingDates(dateMap);w.gfDates={...(w.gfDates||{}),...headed};}
+      for(const [ch,c] of Object.entries(gfqHeadingClocks(dateMap))){const e=(w.gfDates||={})[ch];if(!e)w.gfDates[ch]=c;else if(!e.time&&!e.period&&e.date===c.date)Object.assign(e,gfqClockOf(c));}
       const merged=gfqIntegrateQuests(eventsToAdd,gfqRuleCtx(w));
       stats.components=gfqMarkComponents(merged);
       let pool=[...(w.aiProposals||[]),...merged],consolidation=null;
@@ -2781,11 +3026,12 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     const cnt=(root.querySelector('.vn-count')?.textContent||'').match(/(\d+)\s*\/\s*(\d+)/);
     return {text:vn.textContent||'',chapter:gfqCaptionChapter(cap),line:cnt?+cnt[1]:0,total:cnt?+cnt[2]:0};
   }
-  function gfqVNDate(root){
-    const vn=root?.querySelector('.vn');if(!vn)return null;
-    for(const el of vn.querySelectorAll('*')){if(el.children.length)continue;const t=(el.textContent||'').trim();if(t.length&&t.length<=40){const d=gfqDateHeading(t);if(d)return d;}}
-    return null;
+  function gfqVNStamps(root){
+    const vn=root?.querySelector('.vn');if(!vn)return [];const out=[];
+    for(const el of vn.querySelectorAll('*')){if(el.children.length)continue;const t=(el.textContent||'').trim();if(t.length&&t.length<=40){const s=gfqParseStamp(t);if(s)out.push(s);}}
+    return out;
   }
+  function gfqVNDate(root){return gfqVNStamps(root).find(s=>s.date)?.date||null;}
   const gfqChapterOfSource=s=>(String(s||'').match(/챕터\s*(\d+)/u)||[])[1]||'';
   function gfqEvidenceList(p){
     const l=[...new Set((Array.isArray(p.sourceEvidence)&&p.sourceEvidence.length?p.sourceEvidence:[p.evidence]).filter(Boolean))];
@@ -2877,15 +3123,32 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     gfqToast('검토 목록으로 이동',(p.questTitle||p.name)+' · 기록 탭에서 언제든 반영할 수 있습니다','review');
   }
   let sceneKey='',sceneRecheck=0;
+  // v0.13.0: also '4월 9일', '3일차', time lines ('오후 3시', '[밤]'); a clock going back (밤 → 아침) is the next day.
   function gfqDateTick(w,vn){
-    const d=gfqVNDate(gameRoot);if(!d)return;
-    const prev=gfqCurrentDate(w)?.date||null;
-    if(w.gfReadingDate?.date===d)return;
-    w.gfReadingDate={date:d,chapter:vn.chapter,ms:Date.now(),at:now()};
-    const gap=prev?gfqDayDiff(prev,d):null;
-    record(w,'세계관 날짜 변경: '+(prev?prev+' → ':'')+d+' (챕터 '+vn.chapter+' 날짜 줄)');
+    const stamps=gfqVNStamps(gameRoot);if(!stamps.length)return;
+    const cur=gfqCurrentDate(w),prevClock=gfqCurrentClock(w),prev=cur?.date||null;
+    const ds=stamps.find(s=>s.date||s.md||s.day),cs=stamps.find(s=>s.time||s.period),clock=gfqClockOf(cs);
+    const key=vn.chapter+'|'+JSON.stringify(ds||null)+'|'+JSON.stringify(clock);
+    if(w.gfStampKey===key)return;w.gfStampKey=key;
+    let d=ds?gfqResolveStamp(ds,prev,w.gfDayIndex||null,w.gfDateAnchor?.date||null):null,est=false;
+    if(!d&&clock&&prev&&gfqClockWraps(prevClock,clock)){d=gfqAddDays(prev,1);est=true;}
+    if(ds?.era&&!w.gfEra)w.gfEra=ds.era;
+    if(ds?.day&&d)w.gfDayIndex={n:ds.day,date:d};
+    const ms=Date.now(),dateChanged=!!d&&d!==prev&&w.gfReadingDate?.date!==d;
+    const fixesEstimate=dateChanged&&!est&&!!w.gfDateAnchor&&!w.gfDateAnchor.confirmed;
+    if(dateChanged&&!est)gfqRebase(w,d);
+    if(dateChanged){
+      w.gfReadingDate={date:d,chapter:vn.chapter,ms,at:now(),...(est?{est:true}:{}),...(clock||{})};
+      const gap=prev&&!fixesEstimate?gfqDayDiff(prev,d):null;
+      record(w,'세계관 날짜 변경: '+(prev?prev+' → ':'')+d+(clock?' '+gfqClockText(clock):'')+' (챕터 '+vn.chapter+(est?' 시각 줄로 추정':' 날짜 줄')+')');
+      gfqToast('날짜 변경',gfqDayText(w,d)+(clock?' '+gfqClockText(clock):'')+(fixesEstimate?' · 추정 날짜를 원문에 맞췄습니다':gap===1?' · 하루가 지났습니다':gap>1?' · '+gap+'일이 지났습니다':''),'date');gfqDueToast(w,d);
+    }
+    if(clock&&(d||prev)){
+      w.gfReadingTime={...clock,date:d||prev,chapter:vn.chapter,ms:ms+1,at:now()};
+      if(!dateChanged&&clock.period!==prevClock?.period)gfqToast('시간 변경',gfqClockText(clock)+(prevClock?' · '+gfqClockText(prevClock)+'에서':''),'date');
+    }
+    if(!dateChanged&&!clock)return;
     save();if(panel&&currentTab==='profile')render();
-    gfqToast('날짜 변경',d+' ('+gfqWeekday(d)+')'+(gap===1?' · 하루가 지났습니다':gap>1?' · '+gap+'일이 지났습니다':''),'date');gfqDueToast(w,d);
   }
   let lineKey='';
   function gfqSceneTick(settled=false){
@@ -2915,7 +3178,9 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   function gfqInjectLines(w){
     const lines=[],ledger=w.gfLedger||[],items=w.items||[],fields=w.fields||[];
     const won=(n,u)=>typeof n==='number'?gfqAmount(n,u).replace(' 원','원'):'금액 미확인';
-    const date=gfqCurrentDate(w);if(date)lines.push(['날짜',date.date+' ('+gfqWeekday(date.date)+')']);
+    const date=gfqCurrentDate(w),clock=gfqCurrentClock(w);if(date)lines.push(['날짜',w.gfEra?gfqDayText(w,date.date):date.date+' ('+gfqWeekday(date.date)+')']);if(date&&clock)lines.push(['시각',gfqClockText(clock)]);
+    // v0.13.0: optional request to write a date/time line when the scene moves on, so the extension can follow it.
+    if(w.gfAskStamp)lines.push(['날짜 표기','장면의 날짜나 시각이 바뀌면 그 장면 첫 줄에 '+(w.gfEra?'['+w.gfEra+' N년 M월 D일 시각]':'[YYYY년 M월 D일 (요일) 오전/오후 H시]')+' 형식으로 한 줄만 적습니다. 위 날짜·시각에서 이어지게 씁니다.']);
     const place=w.gfPlaceNow&&w.gfPlaces?.[w.gfPlaceNow.key];if(place)lines.push(['현재 위치',place.name]);
     const cash=gfqCash(w);if(cash.known)lines.push(['소지금',won(cash.balance,cash.unit)]);
     // v0.12.0: what the protagonist is wearing or wielding, so the next scenes can describe it.
@@ -2933,7 +3198,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     for(const q of open){const st=(q.steps||[]).map((t,i)=>(q.stepDone?.[i]===true?'✓':'○')+t);if(st.length)lines.push(['목표 현황',q.title+': '+st.join(' / ')]);const rw=gfqMergeMoneyRewards(q.rewardDetails||[]).filter(r=>r.kind!=='reputation').map(r=>r.name+(typeof r.amount==='number'?' '+won(r.amount,r.unit):'')+' ['+gfqRewardState(w,r).text+']');if(rw.length)lines.push(['걸린 보상',q.title+': '+rw.join(', ')]);}
     return lines;
   }
-  const GFQ_INJECT_SECTIONS=[{key:'status',name:'퀘스트 현황 · 요약',labels:['날짜','현재 위치','소지금','명성','보유 자격','보유 혜택']},{key:'quests',name:'퀘스트 현황 · 퀘스트',labels:['진행 중','목표 현황','걸린 보상','완료']},{key:'money',name:'퀘스트 현황 · 돈',labels:['받을 돈','최근 입금','최근 지출']},{key:'items',name:'퀘스트 현황 · 소지품',labels:['착용 중','수령 예정','이용권','소지품']}];
+  const GFQ_INJECT_SECTIONS=[{key:'status',name:'퀘스트 현황 · 요약',labels:['날짜','시각','날짜 표기','현재 위치','소지금','명성','보유 자격','보유 혜택']},{key:'quests',name:'퀘스트 현황 · 퀘스트',labels:['진행 중','목표 현황','걸린 보상','완료']},{key:'money',name:'퀘스트 현황 · 돈',labels:['받을 돈','최근 입금','최근 지출']},{key:'items',name:'퀘스트 현황 · 소지품',labels:['착용 중','수령 예정','이용권','소지품']}];
   function gfqInjectFit(head,lines,limit){
     // Group by label in priority order, then trim whole items from the end to fit the limit.
     let out=head;const max=Math.max(150,Number(limit)||600);
@@ -3053,6 +3318,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     return '<div class="gfq-card"><b>스토리 반영 (로어북)</b><p class="gfq-muted">퀘스트·돈·물품·날짜 현황을 전용 로어북의 상시 항목 네 개(요약·퀘스트·돈·소지품)로 나눠, 목록이 바뀔 때마다 바뀐 항목만 자동으로 갱신합니다. 가챠 포지가 장면을 쓸 때마다 이 로어북을 새로 읽어, 다음 장면부터 이야기에 반영됩니다. 게임 저장 데이터와 직접 쓰신 지침은 바꾸지 않습니다.</p>'+
       (g.lorebookId?'<p class="gfq-muted">연결된 로어북: <b>'+esc(g.lorebookName||g.lorebookId)+'</b>'+(g.lastAt?' · 마지막 갱신 '+esc(g.lastAt):'')+(g.error?' · <span class="gfq-danger">'+esc(g.error)+'</span>':'')+'</p>':'')+
       '<label><input type="checkbox" id="gfq-inject-on" style="width:auto" '+(g.enabled&&g.lorebookId?'checked':'')+'> 현황을 로어북에 자동 반영</label>'+
+      '<label><input type="checkbox" id="gfq-ask-stamp" style="width:auto" '+(w.gfAskStamp?'checked':'')+'> 장면이 바뀔 때 날짜·시각 한 줄을 적도록 요청 (확장이 날짜를 더 정확히 따라갑니다)</label>'+
       '<label for="gfq-inject-limit">항목별 최대 글자 수 (중요한 내용부터 채웁니다)</label><input id="gfq-inject-limit" type="number" min="150" max="4000" step="50" value="'+esc(g.limit||600)+'">'+
       '<label>현재 반영 내용 ('+text.length+'자 · 약 '+gfqTokens(text).toLocaleString('ko-KR')+'토큰'+(w.gfRunLore?' / 월드 로어북 예산 '+(w.gfRunLore.worldBudget||6000).toLocaleString('ko-KR')+'토큰':'')+')</label><textarea readonly rows="7">'+esc(text)+'</textarea>'+
       (g.lorebookId?'<p class="gfq-muted">가챠 포지 연결: '+(w.gfRunLore?(w.gfRunLore.worldIds.includes(g.lorebookId)?'<b>연결됨</b>'+(w.gfRunLore.worldIds[0]===g.lorebookId?' (월드 로어북 맨 앞)':'')+(w.gfRunLore.beat?' · 스토리 장면에도 사용':' · <span class="gfq-danger">스토리 장면 사용 꺼짐</span>'):'<span class="gfq-danger">연결 안 됨</span>'):'게임 설정을 아직 읽지 못했습니다 (가챠 포지 화면을 한 번 열어 주세요)')+'</p>':'')+
@@ -3084,6 +3350,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     if(a.linked||a.linkRejected)lines.push('이전 기록 연결: '+(a.linked||0)+'개'+(a.linkRejected?' (검증 실패로 거부 '+a.linkRejected+'개)':''));
     if(a.components)lines.push('총액의 구성 금액으로 판정: '+a.components+'개');
     if(a.dated)lines.push('세계관 날짜 갱신: 챕터 '+a.dated+'개');
+    if(a.anchored)lines.push('세계관 날짜 지정: '+a.anchored+' (원문에 날짜가 없어 세계관에 맞춰 정함 · 프로필에서 바꿀 수 있습니다)');
     if(a.consolidation)lines.push(a.consolidation);
     if(a.deferred)lines.push('장면 도달 대기: '+a.deferred+'개 (해당 대사가 나오면 반영)');
     if(a.missing)lines.push('누락 의심 금액: '+a.missing+'개 (아래 목록에서 확인해 주세요)');
@@ -3377,8 +3644,11 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   }[k]||'')+'</svg>';
   function gfqDateBlock(w){
     const c=gfqCurrentDate(w);
-    return '<div class="gfq-tk-date"><span class="gfq-k">세계관 날짜</span><b class="gfq-num">'+esc(c?c.date.replace(/-/g,'.'):'—')+'</b><small class="gfq-sub">'+(c?esc(gfqWeekday(c.date))+'요일 · '+esc(c.basis)+(c.source?' · '+esc(c.source):''):'아직 날짜 줄을 만나지 못했습니다')+'</small>'+
-      '<div class="gfq-row">'+btn('날짜 직접 입력','date-set')+btn('하루 경과','date-next',c?'':'disabled')+'</div></div>';
+    const k=gfqCurrentClock(w),wd=c&&!w.gfEra?gfqWeekday(c.date):'',est=!c||/추정/.test(c.basis);
+    return '<div class="gfq-tk-date"><span class="gfq-k">세계관 날짜</span><b class="gfq-num">'+esc(c?gfqDateText(w,c.date):'—')+'</b>'+
+      (c?'<span class="gfq-tk-clock gfq-num">'+esc(k?gfqClockText(k):'시각 미정')+'</span>':'')+
+      '<small class="gfq-sub">'+(c?(wd?esc(wd)+'요일 · ':'')+esc(c.basis)+(c.source?' · '+esc(c.source):'')+(c.reason?' · '+esc(c.reason):''):'원문에 날짜가 아직 없습니다. 세계관에 맞게 정하거나 직접 입력할 수 있습니다')+'</small>'+
+      '<div class="gfq-row">'+btn('날짜·시각 입력','date-set')+btn('시간 경과','time-next',c?'':'disabled')+btn('하루 경과','date-next',c?'':'disabled')+(est?btn(c?'날짜 다시 정하기':'세계관에 맞게 날짜 정하기','date-auto'):'')+'</div></div>';
   }
   // Protagonist as an admission ticket: photo stub, details, perforated barcode stub.
   // v0.6.2: cash on hand = the starting amount the player entered + confirmed deposits − payments (원 only).
@@ -3678,18 +3948,27 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   }
   // --- Schedule: dated promises and what already happened on each day. ---
   function gfqYmdOf(s){return (String(s||'').match(/\d{4}-\d{2}-\d{2}/)||[])[0]||'';}
+  // '금일 오후 6시', '내일 이 시간' → the clock time a promise falls due, when one is known.
+  function gfqEventClock(w,t){
+    const text=String(t?.text||'');const c=gfqTimeIn(text,'');if(c)return {time:c.time,period:c.period};
+    if(/이\s*시간/.test(text)){const k=gfqCurrentClock(w);if(k?.time)return {time:k.time,period:k.period};}
+    return {};
+  }
   function gfqSchedule(w){
     const ev=[],today=gfqCurrentDate(w)?.date||'';
     for(const t of w.gfLedger||[]){
       const due=t.timing?gfqYmdOf(gfqResolveTiming(w,t.timing)):'';
-      if(due&&['pending','receivable'].includes(t.state))ev.push({date:due,kind:'pay',text:t.name+' '+gfqAmount(t.amount,t.unit)+' 지급',open:true,ref:'tx:'+t.id});
+      if(due&&['pending','receivable'].includes(t.state))ev.push({date:due,kind:'pay',text:t.name+' '+gfqAmount(t.amount,t.unit)+' 지급',open:true,ref:'tx:'+t.id,...gfqEventClock(w,t.timing)});
       for(const h of t.history||[])if(h.date&&h.state==='received')ev.push({date:h.date,kind:'in',text:t.name+' 입금 확인',open:false});
       for(const h of t.history||[])if(h.date&&h.state==='paid')ev.push({date:h.date,kind:'out',text:t.name+' 지출',open:false});
     }
-    for(const i of w.items||[]){const due=i.state==='pending'&&i.timing?gfqYmdOf(gfqResolveTiming(w,i.timing)):'';if(due)ev.push({date:due,kind:'item',text:i.name+' 수령',open:true,ref:'item:'+i.id});}
+    for(const i of w.items||[]){const due=i.state==='pending'&&i.timing?gfqYmdOf(gfqResolveTiming(w,i.timing)):'';if(due)ev.push({date:due,kind:'item',text:i.name+' 수령',open:true,ref:'item:'+i.id,...gfqEventClock(w,i.timing)});}
     for(const q of w.quests||[]){if(q.startDate)ev.push({date:q.startDate,kind:'quest',text:q.title+' 시작',open:false});if(q.doneDate)ev.push({date:q.doneDate,kind:'done',text:q.title+' 완료',open:false});}
     for(const [ch,d] of Object.entries(w.gfDates||{}))if(d?.date)ev.push({date:d.date,kind:'chapter',text:'챕터 '+ch,open:false});
-    for(const e of ev)e.late=e.open&&today&&e.date<today;
+    // v0.13.0: a promise for a set time today is late once the world clock has passed it.
+    const nowRank=gfqClockRank(gfqCurrentClock(w));
+    for(const e of ev)e.late=e.open&&today&&(e.date<today||e.date===today&&e.time&&nowRank!==null&&gfqClockRank({time:e.time})<nowRank);
+    for(const e of ev)if(e.time)e.text=gfqClockText({time:e.time,period:e.period})+' · '+e.text;
     return ev.sort((a,b)=>a.date.localeCompare(b.date));
   }
   let calMonth='',calDay='';
@@ -3708,7 +3987,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     return (late.length?'<div class="gfq-late"><b>기한이 지난 약속 '+late.length+'개</b><ul>'+late.map(e=>'<li><span class="gfq-num">'+esc(e.date)+'</span> '+esc(e.text)+'</li>').join('')+'</ul><p class="gfq-sub">세계관 날짜가 지났는데 아직 지급·수령이 확인되지 않았습니다. 스토리에서 받았다면 거래 내역이나 소지품에서 상태를 갱신해 주세요.</p></div>':'')+
       '<div class="gfq-cal"><div class="gfq-cal-head">'+btn('<span aria-hidden="true">‹</span>','cal-month',`data-id="${ym(-1)}" aria-label="이전 달"`)+'<h3 class="gfq-num">'+y+'. '+String(m).padStart(2,'0')+'</h3>'+btn('<span aria-hidden="true">›</span>','cal-month',`data-id="${ym(1)}" aria-label="다음 달"`)+(today?btn('오늘','cal-month',`data-id="${today.slice(0,7)}" data-day="${today}"`):'')+'</div>'+
       '<div class="gfq-cal-week">'+'일월화수목금토'.split('').map(x=>'<span>'+x+'</span>').join('')+'</div><div class="gfq-cal-grid">'+cells.join('')+'</div></div>'+
-      '<section class="gfq-cal-list"><h3 class="gfq-num">'+esc(day.replace(/-/g,'.'))+' ('+esc(gfqWeekday(day))+')'+(day===today?' · 오늘':'')+'</h3>'+(list.length?'<ul>'+list.map(e=>'<li class="k-'+e.kind+(e.late?' late':'')+'"><span>'+({pay:'지급 약속',item:'수령 예정',in:'입금',out:'지출',quest:'퀘스트',done:'완료',chapter:'챕터'}[e.kind])+'</span>'+esc(e.text)+(e.late?' <em>기한 지남</em>':'')+'</li>').join('')+'</ul>':'<p class="gfq-sub">이 날짜에 기록된 일이 없습니다.</p>')+'</section>';
+      '<section class="gfq-cal-list"><h3 class="gfq-num">'+esc(gfqDayText(w,day))+(day===today?' · 오늘'+(gfqCurrentClock(w)?' '+esc(gfqClockText(gfqCurrentClock(w))):''):'')+'</h3>'+(list.length?'<ul>'+list.map(e=>'<li class="k-'+e.kind+(e.late?' late':'')+'"><span>'+({pay:'지급 약속',item:'수령 예정',in:'입금',out:'지출',quest:'퀘스트',done:'완료',chapter:'챕터'}[e.kind])+'</span>'+esc(e.text)+(e.late?' <em>기한 지남</em>':'')+'</li>').join('')+'</ul>':'<p class="gfq-sub">이 날짜에 기록된 일이 없습니다.</p>')+'</section>';
   }
   // A date change (read, typed or +1 day) announces what falls due that day.
   function gfqDueToast(w,date){
@@ -4069,7 +4348,7 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   const record=(w,text)=>{w.history.unshift({at:now(),text});w.history=w.history.slice(0,500);};
   function exportData(){const file=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');const url=URL.createObjectURL(file);a.href=url;a.download='quest-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   function importData(){const inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';inp.onchange=async()=>{const f=inp.files?.[0];if(!f||f.size>2e6)return alert('2MB 이하의 JSON 파일만 지원합니다.');try{const d=JSON.parse(await f.text());if(d.v!==1||typeof d.worlds!=='object'||!d.worlds||Array.isArray(d.worlds))throw Error('백업 형식이 올바르지 않습니다.');for(const w of Object.values(d.worlds)){if(!Array.isArray(w.quests)||!Array.isArray(w.fields)||!Array.isArray(w.items)||!Array.isArray(w.history))throw Error('월드 데이터가 올바르지 않습니다.');}if(!(await gfqConfirm('현재 퀘스트 데이터를 백업 파일로 교체하시겠습니까?')))return;const previous=data;data=d;if(!save()){data=previous;return;}render();}catch(e){alert('가져오지 못했습니다: '+e.message);}};inp.click();}
-  document.addEventListener('change',e=>{if(!panel||!panel.contains(e.target))return;if(e.target.id==='gfq-world'){data.world=e.target.value;save();render();}if(e.target.id==='gfq-filter'){activeFilter=e.target.value;render();}if(e.target.id==='gfq-ai-connection'){data.aiConnectionId=e.target.value;save();render();}if(e.target.id==='gfq-ai-mode'){data.aiMode=e.target.value;save();render();}if(e.target.id==='gfq-auto-apply'){data.autoApply=e.target.checked;save();render();}if(e.target.id==='gfq-scene-timed'){data.sceneTimed=e.target.checked;save();render();}if(e.target.id==='gfq-inject-on'){const w=current();if(w){if(!w.gfInject?.lorebookId){e.target.checked=false;alert('먼저 [스토리 반영용 로어북 만들기]를 눌러 주세요.');return;}w.gfInject.enabled=e.target.checked;record(w,'로어북 자동 반영 '+(e.target.checked?'켜기':'끄기'));save();render();if(e.target.checked)gfqInjectSync(true);}}if(e.target.id==='gfq-inject-limit'){const w=current();if(w){w.gfInject={...(w.gfInject||{}),limit:Math.max(150,Math.min(4000,Number(e.target.value)||600))};save();render();}}if(e.target.id==='gfq-ai-range'){data.aiRange=e.target.value;save();}if(e.target.id==='gfq-hero'){const w=current();if(w){gfqRuleCtx(w);w.protagonist=String(e.target.value||'').trim().slice(0,40);record(w,'주인공 이름 설정: '+(w.protagonist||'(비움)'));save();render();}}if(e.target.id==='gfq-legacy'){const w=current();if(w){gfqRuleCtx(w);w.gfRulePack=e.target.checked?GFQ_LEGACY_PACK:'';record(w,'기존 월드 전용 보정 규칙 '+(e.target.checked?'사용':'해제'));save();render();}}});
+  document.addEventListener('change',e=>{if(!panel||!panel.contains(e.target))return;if(e.target.id==='gfq-world'){data.world=e.target.value;save();render();}if(e.target.id==='gfq-filter'){activeFilter=e.target.value;render();}if(e.target.id==='gfq-ai-connection'){data.aiConnectionId=e.target.value;save();render();}if(e.target.id==='gfq-ai-mode'){data.aiMode=e.target.value;save();render();}if(e.target.id==='gfq-auto-apply'){data.autoApply=e.target.checked;save();render();}if(e.target.id==='gfq-scene-timed'){data.sceneTimed=e.target.checked;save();render();}if(e.target.id==='gfq-inject-on'){const w=current();if(w){if(!w.gfInject?.lorebookId){e.target.checked=false;alert('먼저 [스토리 반영용 로어북 만들기]를 눌러 주세요.');return;}w.gfInject.enabled=e.target.checked;record(w,'로어북 자동 반영 '+(e.target.checked?'켜기':'끄기'));save();render();if(e.target.checked)gfqInjectSync(true);}}if(e.target.id==='gfq-inject-limit'){const w=current();if(w){w.gfInject={...(w.gfInject||{}),limit:Math.max(150,Math.min(4000,Number(e.target.value)||600))};save();render();}}if(e.target.id==='gfq-ai-range'){data.aiRange=e.target.value;save();}if(e.target.id==='gfq-ask-stamp'){const w=current();if(w){w.gfAskStamp=e.target.checked;record(w,'날짜·시각 표기 요청 '+(e.target.checked?'켜기':'끄기'));save();render();}}if(e.target.id==='gfq-hero'){const w=current();if(w){gfqRuleCtx(w);w.protagonist=String(e.target.value||'').trim().slice(0,40);record(w,'주인공 이름 설정: '+(w.protagonist||'(비움)'));save();render();}}if(e.target.id==='gfq-legacy'){const w=current();if(w){gfqRuleCtx(w);w.gfRulePack=e.target.checked?GFQ_LEGACY_PACK:'';record(w,'기존 월드 전용 보정 규칙 '+(e.target.checked?'사용':'해제'));save();render();}}});
   document.addEventListener('click',e=>{if(panel&&!e.target.closest?.('.gfq-drop'))panel.querySelectorAll('.gfq-drop[open]').forEach(d=>d.open=false);});
   document.addEventListener('click',async e=>{const el=e.target.closest?.('#'+ID+'-panel [data-action],#'+ID+'-panel [data-tab]');if(!el)return;if(el.dataset.tab){currentTab=el.dataset.tab;render();return;}const act=el.dataset.action,id=el.dataset.id,w=current();
   if(act==='quest-filter'){questFilter=id;selectedQuest='';return render();}
@@ -4209,12 +4488,58 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     return;
   }
   if(act==='inject-now'){(async()=>{const ok=await gfqInjectSync(true);alert(ok?'로어북에 현재 현황을 반영했습니다.':'반영하지 못했습니다: '+(w.gfInject?.error||''));})();return;}
-  if(act==='date-set'||act==='date-next'){
-    const c=gfqCurrentDate(w),latest=Math.max(0,...Object.keys(w.gfDates||{}).map(Number).filter(Number.isFinite),c?.chapter||0);
-    let date=null;
-    if(act==='date-next'){if(!c)return;date=gfqAddDays(c.date,1);}
-    else{const ans=(await ask('세계관 현재 날짜를 입력해 주세요. (예: 2033-04-08)',c?.date||''));if(ans===null)return;date=gfqDatesIn(ans)[0]||null;if(!date)return alert('YYYY-MM-DD 형식으로 입력해 주세요.');}
-    update(w=>{w.gfDateManual={date,chapter:latest,at:now(),ms:Date.now()};record(w,'세계관 날짜 '+(act==='date-next'?'하루 경과':'직접 입력')+': '+date);});gfqDueToast(w,date);return;
+  if(act==='date-set'||act==='date-next'||act==='time-next'){
+    const c=gfqCurrentDate(w),k=gfqCurrentClock(w),latest=gfqLatestChapter(w,c);
+    let date=null,clock=null,label='';
+    if(act==='date-next'){if(!c)return;date=gfqAddDays(c.date,1);label='하루 경과';}
+    else if(act==='time-next'){
+      // next period of the day; past 심야 the next day's 새벽
+      if(!c)return;const i=k?GFQ_PERIODS.indexOf(k.period):-1,next=GFQ_PERIODS[(i+1)%GFQ_PERIODS.length];
+      clock={period:i<0?'아침':next};if(i===GFQ_PERIODS.length-1)date=gfqAddDays(c.date,1);label='시간 경과';
+    }else{
+      const ans=(await ask('세계관 현재 날짜와 시각을 입력해 주세요.\n예: 2033-04-08 · 2033년 4월 8일 오후 3시 · 4월 9일 저녁 · 오후 6시 · 제국력 312년 4월 9일',c?(c.date+(k?' '+gfqClockText(k):'')):''));if(ans===null)return;
+      date=gfqDatesIn(ans)[0]||null;
+      if(!date){const m=ans.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/u);if(m)date=gfqResolveStamp({md:[+m[1],+m[2]]},c?.date||null,null,w.gfDateAnchor?.date||null);}
+      const rest=ans.replace(/(?:[가-힣]{1,5}(?:력|기)\s*)?\d{1,4}\s*(?:년\s*|[-./])\s*\d{1,2}\s*(?:[-./]|월\s*)\s*\d{1,2}\s*일?|\d{1,2}\s*월\s*\d{1,2}\s*일/u,'');
+      clock=gfqTimeIn(rest,k?.period||'')||(gfqPeriodIn(rest)?{period:gfqPeriodIn(rest)}:null);
+      if(!date&&!clock)return alert('날짜(YYYY-MM-DD 또는 M월 D일)나 시각(오후 3시, 저녁 등)을 입력해 주세요.');
+      if(!date&&!c)return alert('먼저 날짜를 정해 주세요. (예: 2033-04-08 오후 3시)');
+      const era=gfqEraIn(ans);if(era)w.gfEra=era;
+      label='직접 입력';
+    }
+    const ms=Date.now(),day=date||c.date;
+    update(w=>{
+      if(date&&act==='date-set')gfqRebase(w,date);
+      if(date)w.gfDateManual={date,chapter:latest,at:now(),ms,...(clock||{})};
+      if(clock)w.gfTimeManual={...clock,date:day,chapter:latest,at:now(),ms:ms+1};
+      record(w,'세계관 '+(date?'날짜':'시각')+' '+label+': '+(date?date:'')+(clock?(date?' ':'')+gfqClockText(clock):''));
+    });
+    if(date)gfqDueToast(w,date);return;
+  }
+  if(act==='date-auto'){
+    const c=gfqCurrentDate(w);
+    if(c&&!/추정/.test(c.basis)&&!(await gfqConfirm('원문이나 직접 입력으로 정한 날짜('+gfqDateText(w,c.date)+')가 있습니다. 그래도 세계관에 맞게 다시 정할까요?')))return;
+    (async()=>{
+      let g=null,how='';
+      if(String(data.aiConnectionId||'').trim()){
+        gfqToast('날짜 정하는 중','세계관 설정과 스토리를 보고 날짜를 고르고 있습니다','date');
+        try{g=await gfqAiWorldDate(w);how='AI';}catch(e){how='자동 (AI 실패: '+String(e?.message||e).slice(0,60)+')';}
+      }
+      if(!g){g=gfqGuessWorldDate(w);how=how||'자동';}
+      if(!g?.date)return alert('날짜를 정하지 못했습니다. 직접 입력해 주세요.');
+      const show=(g.era?g.era+' '+(+g.date.slice(0,4))+'년 '+(+g.date.slice(5,7))+'월 '+(+g.date.slice(8,10))+'일':gfqDateText(w,g.date))+(g.era?'':' ('+gfqWeekday(g.date)+')')+(gfqClockOf(g)?' '+gfqClockText(gfqClockOf(g)):'');
+      if(!(await gfqConfirm('세계관에 맞춰 고른 날짜 ('+how+')\n\n'+show+'\n'+(g.reason?'근거: '+g.reason+'\n':'')+'\n이 날짜로 정할까요? 원문에 날짜가 나오면 원문이 우선합니다.')))return;
+      const latest=gfqLatestChapter(w,c);
+      update(w=>{
+        if(g.era)w.gfEra=g.era;
+        if(!w.gfDateAnchor)gfqSetAnchor(w,g,latest||'','ai');
+        const ms=Date.now(),k=gfqClockOf(g);
+        w.gfDateManual={date:g.date,chapter:latest,at:now(),ms,by:'ai',...(g.reason?{reason:g.reason}:{}),...(k||{})};
+        record(w,'세계관 날짜 지정 ('+how+'): '+g.date+(k?' '+gfqClockText(k):'')+(g.reason?' · '+g.reason:''));
+      });
+      gfqToast('날짜 지정',show,'date');gfqDueToast(w,g.date);
+    })();
+    return;
   }
   if(act==='undo-auto'){if(!w.gfUndo)return;if(!(await gfqConfirm('마지막 자동 반영('+w.gfUndo.count+'개) 직전 상태로 퀘스트·자산·소지품·거래 내역·검토 목록을 되돌리시겠습니까? 그 이후 직접 수정한 내용도 함께 되돌아갑니다.')))return;try{const s=JSON.parse(w.gfUndo.snap);Object.assign(w,s);delete w.gfUndo;record(w,'마지막 자동 반영을 되돌렸습니다.');save();render();}catch(e){alert('되돌리지 못했습니다: '+e.message);}return;}
   if(act==='money-rescan'){w.gfMissingMoney=gfqMissingMoney(w);save();render();return alert('누락 의심 금액 '+w.gfMissingMoney.length+'개를 찾았습니다.');}
