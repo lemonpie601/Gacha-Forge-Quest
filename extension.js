@@ -1,4 +1,4 @@
-/* 퀘스트 v0.14.0 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
+/* 퀘스트 v0.14.1 (로컬 수정) — standalone, local-only manual companion; no modification to Gacha Forge saves. */
 (() => {
   'use strict';
   if (globalThis.__gfQuestExtension01) return;
@@ -2682,6 +2682,37 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
     record(w,'추정 날짜를 원문 날짜에 맞춤: '+(delta>0?'+':'')+delta+'일 ('+from+' → '+written+')');
     return delta;
   }
+  // v0.14.1: worlds already in progress when the extension is updated. Older versions only read full
+  // 'YYYY-MM-DD' lines and never kept a clock, and the date/starting-money estimates only ran during a new
+  // analysis, so an existing world kept its old state until the next chapter. Pure part: re-read the stored
+  // story for date/time markers (no AI, nothing removed). Returns true when the world was upgraded.
+  const GFQ_DATA_VER=14;
+  function gfqUpgradeWorld(w){
+    if(!w||typeof w!=='object'||(Number(w.gfVer)||0)>=GFQ_DATA_VER)return false;
+    const map=gfqDateMap(w),headed=gfqHeadingDates(map);
+    w.gfDates={...(w.gfDates||{}),...headed};
+    for(const [ch,c] of Object.entries(gfqHeadingDates(map,'clock'))){const e=w.gfDates[ch];if(!e)w.gfDates[ch]=c;else if(!e.time&&!e.period&&e.date===c.date)Object.assign(e,gfqClockOf(c));}
+    if(!w.gfEra&&gfqMapEra(map))w.gfEra=gfqMapEra(map);
+    w.gfVer=GFQ_DATA_VER;
+    return true;
+  }
+  // Then, once per world and session: fill a missing date / starting balance the same way a new analysis would.
+  const gfqUpgradeTried=new Set();
+  async function gfqUpgradeTick(){
+    const key=data.world,w=current();if(!w||gfqBusy||globalThis.__gfqNoUpgrade)return; // test hook
+    const changed=gfqUpgradeWorld(w);
+    const needDate=!gfqCurrentDate(w),needCash=!w.gfCashBase&&!w.gfCashTried;
+    if((!needDate&&!needCash)||gfqUpgradeTried.has(key)||!gfqStoryRecords(w).length){if(changed){save();if(panel)render();}return;}
+    gfqUpgradeTried.add(key);
+    let setup={};
+    if(String(data.aiConnectionId||'').trim()){try{setup=await gfqAiWorldSetup(w,{date:needDate,cash:needCash});}catch{}}
+    if(data.worlds[key]!==w)return;
+    const done=[];
+    if(needDate&&!gfqCurrentDate(w)){const g=setup.date||gfqGuessWorldDate(w);if(g?.date){gfqSetAnchor(w,g,gfqLatestChapter(w),setup.date?'ai':'guess');done.push('날짜 '+gfqDayText(w,g.date));}}
+    if(needCash&&!w.gfCashBase){w.gfCashTried=true;const c=setup.cash||gfqGuessStartCash(w,setup.lore||'');if(c){gfqSetCashEstimate(w,c,setup.cash?'AI':'자동');done.push('시작 소지금 '+gfqAmount(c.amount,c.unit));}}
+    save();if(panel)render();
+    if(done.length)gfqToast('업데이트 반영',done.join(' · ')+' (세계관에 맞춰 정함 · 프로필에서 바꿀 수 있어요)','date');
+  }
   // v0.14.0: the world's own lorebooks (not this extension's status book), as plain text for the estimates below.
   const gfqLoreCache=new Map();
   async function gfqWorldLoreText(w,limit=6000){
@@ -4683,8 +4714,8 @@ position:fixed;inset:0;margin:auto;transform:none;width:min(1180px,calc(100vw - 
   }if(act==='invoke-quest-bridge')return invokeQuestBridge();if(act==='prepare-ai-prompt')return prepareAiPrompt();if(act==='import-ai-result')return importAiResult();if(act==='approve-ai-proposal')return approveAiProposal(id);if(act==='remove-ai-proposal'){w.aiProposals=w.aiProposals.filter(x=>x.id!==id);save();render();return;}if(act==='refresh-ai-connections')return refreshAiConnections();if(act==='context-preview')return copyQuestContext();if(act==='export')return exportData();if(act==='import')return importData();if(act==='delete-world'){if(!(await gfqConfirm('현재 월드의 퀘스트 데이터를 삭제하시겠습니까? 게임 원본 저장 데이터에는 영향을 주지 않습니다.')))return;delete data.worlds[data.world];data.world=Object.keys(data.worlds)[0]||'';save();render();}
   });
   gfqSaveBaseline();
-  mount();setTimeout(()=>gfqSyncPull('start').finally(()=>gfqSyncStartDone?.()),600);document.addEventListener('visibilitychange',()=>{if(document.hidden){if(gfqSyncMeta().dirty&&!gfqSyncBusy){if(gfqSyncT){clearTimeout(gfqSyncT);gfqSyncT=0;}gfqSyncPush();}}else gfqSyncPull('visible');});setTimeout(refreshAiConnections,900);setTimeout(syncWorld,1200);worldSyncTimer=null;const mo=new MutationObserver(()=>{if(!document.hidden&&findHost()!==gameHost)mount();});mo.observe(document.documentElement,{childList:true,subtree:false});
-  const sync=setInterval(()=>{if(document.hidden)return;if(!gameHost || !gameHost.isConnected || !getButton())mount();},12000);
+  mount();setTimeout(()=>gfqSyncPull('start').finally(()=>gfqSyncStartDone?.()),600);document.addEventListener('visibilitychange',()=>{if(document.hidden){if(gfqSyncMeta().dirty&&!gfqSyncBusy){if(gfqSyncT){clearTimeout(gfqSyncT);gfqSyncT=0;}gfqSyncPush();}}else gfqSyncPull('visible');});setTimeout(refreshAiConnections,900);setTimeout(syncWorld,1200);setTimeout(()=>gfqUpgradeTick().catch(()=>{}),2500);worldSyncTimer=null;const mo=new MutationObserver(()=>{if(!document.hidden&&findHost()!==gameHost)mount();});mo.observe(document.documentElement,{childList:true,subtree:false});
+  const sync=setInterval(()=>{if(document.hidden)return;gfqUpgradeTick().catch(()=>{});if(!gameHost || !gameHost.isConnected || !getButton())mount();},12000);
   // Re-promote dialog to the browser top layer after entering or exiting fullscreen.
   let fsRefresh=null;
   function refreshFullscreenDialog(){

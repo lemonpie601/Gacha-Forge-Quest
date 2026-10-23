@@ -32,6 +32,7 @@ let promptAnswer=null;win.prompt=()=>promptAnswer;
 const host=doc.createElement('marinara-capability-gacha-forge');doc.body.append(host);
 host.attachShadow({mode:'open'}).innerHTML='<div><button class="gf-fs-bar icon-button">⛶</button></div>';
 win.__gfqNativeDialogs=true; // v0.12.0: answer the in-page dialogs with the stubbed confirm/prompt above
+win.__gfqNoUpgrade=true; // v0.14.1: this test counts calls; the start-up upgrade is covered by ui.upgrade.js
 win.eval(src);
 (async()=>{
   // Game traffic goes through the page's fetch, which the extension observes.
